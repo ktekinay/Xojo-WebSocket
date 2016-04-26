@@ -8,16 +8,81 @@ Private Class Message
 
 	#tag Method, Flags = &h0
 		Sub Constructor(frame As M_WebSocket.Frame)
-		  Constructor
 		  Operator_Add frame
 		  
 		End Sub
 	#tag EndMethod
 
 	#tag Method, Flags = &h0
-		Sub Operator_Add(frame As M_WebSocket.Frame)
+		 Shared Function ControlTypes() As M_WebSocket.Message.Types()
+		  dim r() as Message.Types = Array( _
+		  Message.Types.Ping, _
+		  Message.Types.Pong, _
+		  Message.Types.ConnectionClose _
+		  )
+		  
+		  return r
+		End Function
+	#tag EndMethod
+
+	#tag Method, Flags = &h0
+		 Shared Function DataTypes() As Message.Types()
+		  
+		  dim r() as Message.Types = Array( _
+		  Types.Binary, _
+		  Types.Text _
+		  )
+		  
+		  return r
+		End Function
+	#tag EndMethod
+
+	#tag Method, Flags = &h0
+		Function NextFrame(limit As Integer) As M_WebSocket.Frame
+		  if EOF then
+		    return nil
+		  end if
+		  
+		  if Message.ControlTypes.IndexOf( Type ) <> -1 then
+		    //
+		    // Cannot fragment a control message
+		    //
+		    limit = 125
+		    
+		  elseif limit <= 0 then
+		    //
+		    // We are sending the rest
+		    //
+		    limit = Content.LenB
+		    
+		  end if
+		  
+		  dim r as new M_WebSocket.Frame
+		  
+		  dim data as string = Content.MidB( FramePositionIndex, limit )
+		  r.Type = if( FramePositionIndex = 1, Type, Message.Types.Continuation )
+		  
+		  FramePositionIndex = FramePositionIndex + data.LenB
+		  
+		  r.Content = data
+		  r.IsFinal = EOF
+		  r.IsMasked = UseMask
+		  
+		  return r
+		End Function
+	#tag EndMethod
+
+	#tag Method, Flags = &h0
+		Attributes( hidden )  Sub Operator_Add(frame As M_WebSocket.Frame)
+		  Constructor
+		  
 		  if self.Type = Types.Unknown then
 		    mType = frame.Type
+		    
+		  elseif frame.Type = Types.Continuation then
+		    //
+		    // Do nothing
+		    //
 		    
 		  elseif frame.Type <> self.Type then
 		    raise new WebSocketException( "Frame type must match message type" )
@@ -25,13 +90,30 @@ Private Class Message
 		  end if
 		  
 		  self.Content = self.Content + frame.Content
+		  IsComplete = frame.IsFinal
 		  
 		End Sub
 	#tag EndMethod
 
 	#tag Method, Flags = &h0
-		Function Type() As Message.Types
-		  return mType
+		Sub Reset()
+		  FramePositionIndex = 1
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h0
+		 Shared Function ValidTypes() As Message.Types()
+		  
+		  dim r() as Message.Types = Array( _
+		  Types.Binary, _
+		  Types.Text, _
+		  Types.Ping, _
+		  Types.Pong, _
+		  Types.ConnectionClose, _
+		  Types.Continuation _
+		   )
+		  
+		  return r
 		End Function
 	#tag EndMethod
 
@@ -40,8 +122,51 @@ Private Class Message
 		Content As String
 	#tag EndProperty
 
+	#tag ComputedProperty, Flags = &h0
+		#tag Note
+			return FramePositionIndex >
+		#tag EndNote
+		#tag Getter
+			Get
+			  return FramePositionIndex > Content.LenB
+			End Get
+		#tag EndGetter
+		EOF As Boolean
+	#tag EndComputedProperty
+
+	#tag Property, Flags = &h21
+		Private FramePositionIndex As Integer = 1
+	#tag EndProperty
+
 	#tag Property, Flags = &h0
-		mType As Types = Types.Unknown
+		IsComplete As Boolean
+	#tag EndProperty
+
+	#tag Property, Flags = &h21
+		Private mType As Types = Types.Unknown
+	#tag EndProperty
+
+	#tag ComputedProperty, Flags = &h0
+		#tag Getter
+			Get
+			  return mType
+			  
+			End Get
+		#tag EndGetter
+		#tag Setter
+			Set
+			  if value = Types.Unknown or value = Types.Continuation then
+			    raise new WebSocketException( "Cannot set a message to that type : " + str( value ) )
+			  end if
+			  
+			  mType = value
+			End Set
+		#tag EndSetter
+		Type As Message.Types
+	#tag EndComputedProperty
+
+	#tag Property, Flags = &h0
+		UseMask As Boolean
 	#tag EndProperty
 
 
