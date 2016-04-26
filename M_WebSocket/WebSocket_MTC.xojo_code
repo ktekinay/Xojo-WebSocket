@@ -415,6 +415,10 @@ Implements Writeable
 
 
 	#tag Property, Flags = &h0
+		ContentLimit As Integer = &h7FFF
+	#tag EndProperty
+
+	#tag Property, Flags = &h0
 		ForceMasked As Boolean
 	#tag EndProperty
 
