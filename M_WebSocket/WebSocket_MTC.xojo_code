@@ -1,5 +1,5 @@
 #tag Class
-Protected Class WebSocket_MTC
+Class WebSocket_MTC
 Implements Writeable
 	#tag Method, Flags = &h0
 		Sub Connect(url As Text)
@@ -44,7 +44,7 @@ Implements Writeable
 	#tag EndMethod
 
 	#tag Method, Flags = &h21
-		Private Function DecodePacket(dataMB as MemoryBlock) As Pair
+		Private Function DecodeFrame(dataMB as MemoryBlock) As Pair
 		  dim r as Pair
 		  
 		  if dataMB.Size = 0 then
@@ -55,7 +55,7 @@ Implements Writeable
 		  dim dataPtr as Ptr = dataMB
 		  dim lastDataByte as integer = dataMB.Size - 1
 		  
-		  dim type as PacketTypes = PacketTypes( dataPtr.Byte( 0 ) and &b01111111 )
+		  dim type as Message.Types = Message.Types( dataPtr.Byte( 0 ) and &b01111111 )
 		  dim lenCode as byte = dataPtr.Byte( 1 )
 		  dim masked as boolean = ( lenCode and &b10000000 ) <> 0
 		  lenCode = lenCode and &b01111111
@@ -134,7 +134,7 @@ Implements Writeable
 		  
 		  if Socket isa Object then
 		    if State = States.Connected then
-		      dim packet as string = EncodePacket( "Disconnecton requested", PacketTypes.ConnectionClose, UseMasked )
+		      dim packet as string = EncodeFrame( "Disconnecton requested", Message.Types.ConnectionClose, UseMasked )
 		      Socket.Write packet
 		    end if
 		    
@@ -149,14 +149,14 @@ Implements Writeable
 	#tag EndMethod
 
 	#tag Method, Flags = &h21
-		Private Function EncodePacket(data As String, packetType As PacketTypes, masked As Boolean, useLength As UInt64 = 0) As String
-		  dim finCodeNibble as byte = if( packetType = PacketTypes.Continuation, 0, &b10000000 )
+		Private Function EncodeFrame(data As String, packetType As Message.Types, masked As Boolean, useLength As UInt64 = 0) As String
+		  dim finCodeNibble as byte = if( packetType = Message.Types.Continuation, 0, &b10000000 )
 		  dim opCodeNibble as byte = integer( packetType )
 		  dim firstByte as byte = finCodeNibble + opCodeNibble
 		  
 		  const uZero as UInt64 = 0
 		  
-		  if packetType = PacketTypes.Continuation then
+		  if packetType = Message.Types.Continuation then
 		    useLength = uZero
 		  elseif useLength = uZero then
 		    useLength = data.LenB
@@ -276,24 +276,24 @@ Implements Writeable
 		  dim data as string = sender.ReadAll
 		  
 		  if State = States.Connected then
-		    dim parts as Pair = DecodePacket( data )
-		    dim type as PacketTypes = parts.Left
+		    dim parts as Pair = DecodeFrame( data )
+		    dim type as Message.Types = parts.Left
 		    data = parts.Right
 		    
 		    select case type
-		    case PacketTypes.Ping
+		    case Message.Types.Ping
 		      
-		      dim packet as string = EncodePacket( data, PacketTypes.Pong, UseMasked )
+		      dim packet as string = EncodeFrame( data, Message.Types.Pong, UseMasked )
 		      Socket.Write packet
 		      
-		    case PacketTypes.ConnectionClose
+		    case Message.Types.ConnectionClose
 		      DestroySocket
 		      RaiseEvent Disconnected
 		      
-		    case PacketTypes.Pong
+		    case Message.Types.Pong
 		      #pragma warning "Implement ping method and pong event, or something"
 		      
-		    case PacketTypes.Continuation
+		    case Message.Types.Continuation
 		      #pragma warning "Implement continuation handling"
 		      
 		    case else
@@ -375,7 +375,7 @@ Implements Writeable
 	#tag Method, Flags = &h0
 		Sub Write(data As String)
 		  if State = States.Connected and Socket isa object then
-		    dim packet as string = EncodePacket( data, PacketTypes.Text, UseMasked )
+		    dim packet as string = EncodeFrame( data, Message.Types.Text, UseMasked )
 		    Socket.Write packet
 		  else
 		    #pragma warning "Raise an exception?"
@@ -484,15 +484,6 @@ Implements Writeable
 	#tag Constant, Name = kGetHeader, Type = String, Dynamic = False, Default = \"GET / HTTP/1.1\nOrigin: %ORIGIN%\nConnection: Upgrade\nHost: %HOST%\nSec-WebSocket-Key: %KEY%\nUpgrade: websocket\nSec-WebSocket-Version: 13\n\n", Scope = Private
 	#tag EndConstant
 
-
-	#tag Enum, Name = PacketTypes, Type = Integer, Flags = &h21
-		Continuation = 0
-		  Text = 1
-		  Binary = 2
-		  ConnectionClose = 8
-		  Ping = 9
-		Pong = 10
-	#tag EndEnum
 
 	#tag Enum, Name = States, Type = Integer, Flags = &h0
 		Disconnected
