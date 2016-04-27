@@ -26,12 +26,12 @@ Begin Window Window1
    Title           =   "Untitled"
    Visible         =   True
    Width           =   600
-   Begin PushButton PushButton1
+   Begin PushButton btnConnect
       AutoDeactivate  =   True
       Bold            =   False
       ButtonStyle     =   "0"
       Cancel          =   False
-      Caption         =   "Button"
+      Caption         =   "Connect"
       Default         =   False
       Enabled         =   True
       Height          =   20
@@ -58,6 +58,7 @@ Begin Window Window1
       Width           =   80
    End
    Begin WebSocket_MTC WS
+      ContentLimit    =   32767
       ForceMasked     =   False
       Index           =   -2147483648
       LocalAddress    =   ""
@@ -67,12 +68,12 @@ Begin Window Window1
       State           =   "0"
       TabPanelIndex   =   0
    End
-   Begin PushButton PushButton2
+   Begin PushButton btnDisconnect
       AutoDeactivate  =   True
       Bold            =   False
       ButtonStyle     =   "0"
       Cancel          =   False
-      Caption         =   "Button"
+      Caption         =   "Disconnect"
       Default         =   False
       Enabled         =   True
       Height          =   20
@@ -96,6 +97,37 @@ Begin Window Window1
       Top             =   190
       Underline       =   False
       Visible         =   True
+      Width           =   116
+   End
+   Begin PushButton btnPing
+      AutoDeactivate  =   True
+      Bold            =   False
+      ButtonStyle     =   "0"
+      Cancel          =   False
+      Caption         =   "Ping"
+      Default         =   False
+      Enabled         =   True
+      Height          =   20
+      HelpTag         =   ""
+      Index           =   -2147483648
+      InitialParent   =   ""
+      Italic          =   False
+      Left            =   143
+      LockBottom      =   False
+      LockedInPosition=   False
+      LockLeft        =   True
+      LockRight       =   False
+      LockTop         =   True
+      Scope           =   2
+      TabIndex        =   2
+      TabPanelIndex   =   0
+      TabStop         =   True
+      TextFont        =   "System"
+      TextSize        =   0.0
+      TextUnit        =   0
+      Top             =   236
+      Underline       =   False
+      Visible         =   True
       Width           =   80
    End
 End
@@ -104,7 +136,7 @@ End
 #tag WindowCode
 #tag EndWindowCode
 
-#tag Events PushButton1
+#tag Events btnConnect
 	#tag Event
 		Sub Action()
 		  WS.Connect "ws://echo.websocket.org"
@@ -119,7 +151,7 @@ End
 		End Sub
 	#tag EndEvent
 	#tag Event
-		Sub ResponseReceived(data As String)
+		Sub DataReceived(data As String)
 		  return
 		End Sub
 	#tag EndEvent
@@ -133,11 +165,23 @@ End
 		  return
 		End Sub
 	#tag EndEvent
+	#tag Event
+		Sub PongReceived(msg As String)
+		  return
+		End Sub
+	#tag EndEvent
 #tag EndEvents
-#tag Events PushButton2
+#tag Events btnDisconnect
 	#tag Event
 		Sub Action()
 		  WS.Disconnect
+		End Sub
+	#tag EndEvent
+#tag EndEvents
+#tag Events btnPing
+	#tag Event
+		Sub Action()
+		  WS.Ping "Hello"
 		End Sub
 	#tag EndEvent
 #tag EndEvents
