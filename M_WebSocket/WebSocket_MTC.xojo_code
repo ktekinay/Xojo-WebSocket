@@ -3,24 +3,36 @@ Class WebSocket_MTC
 Implements Writeable
 	#tag Method, Flags = &h0
 		Sub Connect(url As Text)
-		  #pragma warning "If aleady connected, raise an exception"
+		  if State = States.Connected then
+		    raise new WebSocketException( "The WebSocket is already connected" )
+		  end if
+		  
+		  CreateSocket
+		  
+		  dim urlComps as new M_WebSocket.URLComponents( url.Trim )
 		  
 		  dim rx as new RegEx
 		  rx.SearchPattern = "^(?:http|ws)s:"
 		  
-		  CreateSocket
-		  
-		  url = url.Trim
-		  Socket.Address = url
-		  if rx.Search( url ) isa RegExMatch then
-		    Socket.Secure = true
-		    Socket.Port = 443
+		  Socket.Address = urlComps.Host
+		  if urlComps.Port > 0 then
+		    
+		    Socket.Port = urlComps.Port
+		    Socket.Secure = rx.Search( urlComps.Protocol ) isa RegExMatch
+		    
 		  else
-		    Socket.Secure = false
-		    Socket.Port = 80
+		    
+		    if rx.Search( urlComps.Protocol ) isa RegExMatch then
+		      Socket.Secure = true
+		      Socket.Port = 443
+		    else
+		      Socket.Secure = false
+		      Socket.Port = 80
+		    end if
+		    
 		  end if
 		  
-		  self.URL = url
+		  self.URL = urlComps
 		  
 		  Socket.Connect
 		  mState = States.Connecting
@@ -199,21 +211,27 @@ Implements Writeable
 		  //
 		  // Do substitutions
 		  //
-		  dim rxHost as new RegEx
-		  rxHost.SearchPattern = "^([^:]+://)?(.*)"
-		  rxHost.ReplacementPattern = "$2"
-		  
-		  dim host as string = URL
-		  host = rxHost.Replace( host )
-		  
 		  dim key as string = Crypto.GenerateRandomBytes( 10 )
 		  key = EncodeBase64( key )
 		  
+		  ConnectKey = key
+		  
 		  dim header as string = kGetHeader
-		  header = header.Replace( "%ORIGIN%", sender.LocalAddress )
-		  header = header.Replace( "%HOST%", host )
+		  
+		  dim resources as string = URL.Resource
+		  if URL.Parameters.Count <> 0 then
+		    resources = resources + "?" + URL.ParametersToString
+		  end if
+		  
+		  header = header.Replace( "%RESOURCES%", resources )
+		  header = header.Replace( "%HOST%", URL.Host )
 		  header = header.Replace( "%KEY%", key )
 		  
+		  if Origin.Trim <> "" then
+		    header = header + "Origin: " + Origin + EndOfLine
+		  end if
+		  
+		  header = header + EndOfLine
 		  header = ReplaceLineEndings( header, EndOfLine.Windows )
 		  sender.Write header
 		  
@@ -221,14 +239,12 @@ Implements Writeable
 		    //
 		    // The constant, for convenience
 		    //
-		    GET / HTTP/1.1
-		    Origin: %ORIGIN%
+		    GET /%RESOURCES% HTTP/1.1
 		    Connection: Upgrade
 		    Host: %HOST%
 		    Sec-WebSocket-Key: %KEY%
 		    Upgrade: websocket
 		    Sec-WebSocket-Version: 13
-		    
 		    
 		  #endif
 		End Sub
@@ -302,23 +318,7 @@ Implements Writeable
 		    // Still handling the negotiation
 		    //
 		    
-		    data = data.DefineEncoding( Encodings.UTF8 )
-		    data = ReplaceLineEndings( data, &uA )
-		    
-		    dim rx as new RegEx
-		    rx.SearchPattern = "^([^: ]+):? *(.*)"
-		    
-		    dim headers as new Dictionary
-		    dim match as RegExMatch = rx.Search( data )
-		    while match isa RegExMatch
-		      dim key as string = match.SubExpressionString( 1 )
-		      dim value as string = match.SubExpressionString( 2 )
-		      headers.Value( key ) = value
-		      
-		      match = rx.Search
-		    wend
-		    
-		    if headers.Lookup( "Upgrade", "" ) = "websocket" and headers.Lookup( "Connection", "" ) = "Upgrade" then
+		    if ValidateHandshake( data ) then
 		      mState = States.Connected
 		      RaiseEvent Connected
 		    else
@@ -327,7 +327,6 @@ Implements Writeable
 		      RaiseEvent Error( "Could not negotiate connection" )
 		    end if
 		    
-		    headers = headers
 		  end if
 		  
 		  return
@@ -363,6 +362,70 @@ Implements Writeable
 		  if State = States.Connected then
 		    return RaiseEvent SendProgress( bytesSent, bytesLeft )
 		  end if
+		  
+		End Function
+	#tag EndMethod
+
+	#tag Method, Flags = &h21
+		Private Function ValidateHandshake(data As String) As Boolean
+		  data = data.DefineEncoding( Encodings.UTF8 )
+		  data = ReplaceLineEndings( data, &uA )
+		  
+		  dim rx as new RegEx
+		  
+		  //
+		  // Confirm the status code
+		  //
+		  rx.SearchPattern = "\AHTTP/\d+(?:\.\d+) 101"
+		  
+		  if rx.Search( data ) is nil then
+		    return false
+		  end if
+		  
+		  //
+		  // Parse the headers
+		  //
+		  rx.SearchPattern = "^([^: ]+):? *(.*)"
+		  
+		  dim headers as new Dictionary
+		  dim match as RegExMatch = rx.Search( data )
+		  while match isa RegExMatch
+		    dim key as string = match.SubExpressionString( 1 )
+		    dim value as string = match.SubExpressionString( 2 )
+		    headers.Value( key ) = value
+		    
+		    match = rx.Search
+		  wend
+		  
+		  //
+		  // Validate the required headers
+		  //
+		  if headers.Lookup( "Upgrade", "" ) <> "websocket" or _
+		    headers.Lookup( "Connection", "" ) <> "Upgrade" then
+		    return false
+		  end if
+		  
+		  //
+		  // Validate Sec-WebSocket-Accept if present
+		  //
+		  const kAcceptKey = "Sec-WebSocket-Accept"
+		  const kGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+		  
+		  dim returnedKey as string = headers.Lookup( kAcceptKey, "" ).StringValue.Trim
+		  if returnedKey = "" then
+		    return false
+		  end if
+		  
+		  dim expectedKey as string = EncodeBase64( Crypto.SHA1( ConnectKey + kGUID ) )
+		  
+		  if expectedKey <> returnedKey then
+		    return false
+		  end if
+		  
+		  //
+		  // If we get here, all the validation passed
+		  //
+		  return true
 		  
 		End Function
 	#tag EndMethod
@@ -414,8 +477,12 @@ Implements Writeable
 	#tag EndHook
 
 
+	#tag Property, Flags = &h21
+		Private ConnectKey As String
+	#tag EndProperty
+
 	#tag Property, Flags = &h0
-		ContentLimit As Integer = &h7FFF
+		ContentLimit As Integer = 32767
 	#tag EndProperty
 
 	#tag Property, Flags = &h0
@@ -443,6 +510,10 @@ Implements Writeable
 
 	#tag Property, Flags = &h21
 		Private mState As States
+	#tag EndProperty
+
+	#tag Property, Flags = &h0
+		Origin As String
 	#tag EndProperty
 
 	#tag Property, Flags = &h21
@@ -488,7 +559,7 @@ Implements Writeable
 	#tag EndComputedProperty
 
 	#tag Property, Flags = &h21
-		Private URL As String
+		Private URL As M_WebSocket.URLComponents
 	#tag EndProperty
 
 	#tag ComputedProperty, Flags = &h21
@@ -501,7 +572,7 @@ Implements Writeable
 	#tag EndComputedProperty
 
 
-	#tag Constant, Name = kGetHeader, Type = String, Dynamic = False, Default = \"GET / HTTP/1.1\nOrigin: %ORIGIN%\nConnection: Upgrade\nHost: %HOST%\nSec-WebSocket-Key: %KEY%\nUpgrade: websocket\nSec-WebSocket-Version: 13\n\n", Scope = Private
+	#tag Constant, Name = kGetHeader, Type = String, Dynamic = False, Default = \"GET /%RESOURCES% HTTP/1.1\nConnection: Upgrade\nHost: %HOST%\nSec-WebSocket-Key: %KEY%\nUpgrade: websocket\nSec-WebSocket-Version: 13\n", Scope = Private
 	#tag EndConstant
 
 
@@ -515,12 +586,14 @@ Implements Writeable
 	#tag ViewBehavior
 		#tag ViewProperty
 			Name="ContentLimit"
+			Visible=true
 			Group="Behavior"
 			InitialValue="&h7FFF"
 			Type="Integer"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="ForceMasked"
+			Visible=true
 			Group="Behavior"
 			Type="Boolean"
 		#tag EndViewProperty
@@ -548,6 +621,13 @@ Implements Writeable
 			Visible=true
 			Group="ID"
 			Type="String"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="Origin"
+			Visible=true
+			Group="Behavior"
+			Type="String"
+			EditorType="MultiLineEditor"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="RemoteAddress"
