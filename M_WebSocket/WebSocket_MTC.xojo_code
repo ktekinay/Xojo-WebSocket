@@ -27,6 +27,17 @@ Implements Writeable
 		End Sub
 	#tag EndMethod
 
+	#tag Method, Flags = &h0
+		Sub Constructor()
+		  SendTimer = new Timer
+		  SendTimer.Mode = Timer.ModeOff
+		  SendTimer.Period = 20
+		  
+		  AddHandler SendTimer.Action, WeakAddressOf SendTimer_Action
+		  
+		End Sub
+	#tag EndMethod
+
 	#tag Method, Flags = &h21
 		Private Sub CreateSocket()
 		  if Socket is nil then
@@ -44,64 +55,6 @@ Implements Writeable
 	#tag EndMethod
 
 	#tag Method, Flags = &h21
-		Private Function DecodeFrame(dataMB as MemoryBlock) As Pair
-		  dim r as Pair
-		  
-		  if dataMB.Size = 0 then
-		    return r
-		  end if
-		  
-		  dataMB.LittleEndian = false
-		  dim dataPtr as Ptr = dataMB
-		  dim lastDataByte as integer = dataMB.Size - 1
-		  
-		  dim type as Message.Types = Message.Types( dataPtr.Byte( 0 ) and &b01111111 )
-		  dim lenCode as byte = dataPtr.Byte( 1 )
-		  dim masked as boolean = ( lenCode and &b10000000 ) <> 0
-		  lenCode = lenCode and &b01111111
-		  
-		  dim dataLen as UInt64
-		  dim firstDataByte as integer = 2 
-		  
-		  select case lenCode
-		  case 127
-		    dataLen = dataMB.UInt64Value( 2 )
-		    firstDataByte = firstDataByte + 8
-		    
-		  case 126
-		    dataLen = dataMB.UInt16Value( 2 )
-		    firstDataByte = firstDataByte + 2
-		    
-		  case else
-		    dataLen = lenCode
-		    
-		  end select
-		  
-		  if masked and dataLen > 0 then
-		    dim maskMB as MemoryBlock = dataMB.StringValue( firstDataByte, 4 )
-		    dim maskPtr as Ptr = maskMB
-		    
-		    firstDataByte = firstDataByte + 4
-		    
-		    dim maskIndex as integer
-		    for i as integer = firstDataByte to lastDataByte
-		      dataPtr.Byte( i ) = dataPtr.Byte( i ) xor maskPtr.Byte( maskIndex )
-		      
-		      maskIndex = maskIndex + 1
-		      if maskIndex = 4 then
-		        maskIndex = 0
-		      end if
-		    next
-		  end if
-		  
-		  dim data as string = if( dataLen > 0, dataMB.StringValue( firstDataByte, lastDataByte - firstDataByte + 1 ), "" )
-		  
-		  r = type : data
-		  return r
-		End Function
-	#tag EndMethod
-
-	#tag Method, Flags = &h21
 		Private Sub DestroySocket()
 		  if Socket isa Object then
 		    RemoveHandler Socket.Connected, WeakAddressOf Socket_Connected
@@ -115,12 +68,24 @@ Implements Writeable
 		  end if
 		  
 		  mState = States.Disconnected
+		  
+		  redim OutgoingControlFrames( -1 )
+		  redim OutgoingUserMessages( -1 )
+		  SendTimer.Mode = Timer.ModeOff
 		End Sub
 	#tag EndMethod
 
 	#tag Method, Flags = &h21
 		Private Sub Destructor()
 		  DestroySocket
+		  
+		  if SendTimer isa Timer then
+		    SendTimer.Mode = Timer.ModeOff
+		    RemoveHandler SendTimer.Action, WeakAddressOf SendTimer_Action
+		    SendTimer = nil
+		  end if
+		  
+		  
 		End Sub
 	#tag EndMethod
 
@@ -134,8 +99,12 @@ Implements Writeable
 		  
 		  if Socket isa Object then
 		    if State = States.Connected then
-		      dim packet as string = EncodeFrame( "Disconnecton requested", Message.Types.ConnectionClose, UseMasked )
-		      Socket.Write packet
+		      dim f as new M_WebSocket.Frame
+		      f.Type = Message.Types.ConnectionClose
+		      f.IsFinal = true
+		      
+		      OutgoingControlFrames.Append f
+		      SendNextFrame
 		    end if
 		    
 		    //
@@ -148,84 +117,78 @@ Implements Writeable
 		End Sub
 	#tag EndMethod
 
-	#tag Method, Flags = &h21
-		Private Function EncodeFrame(data As String, packetType As Message.Types, masked As Boolean, useLength As UInt64 = 0) As String
-		  dim finCodeNibble as byte = if( packetType = Message.Types.Continuation, 0, &b10000000 )
-		  dim opCodeNibble as byte = integer( packetType )
-		  dim firstByte as byte = finCodeNibble + opCodeNibble
-		  
-		  const uZero as UInt64 = 0
-		  
-		  if packetType = Message.Types.Continuation then
-		    useLength = uZero
-		  elseif useLength = uZero then
-		    useLength = data.LenB
-		  end if
-		  
-		  dim lenCode as byte
-		  
-		  dim lenMB as MemoryBlock
-		  select case useLength
-		  case is > &hFFFF
-		    lenMB = new MemoryBlock( 8 )
-		    lenMB.LittleEndian = false
-		    lenMB.UInt64Value( 0 ) = useLength
-		    lenCode = 127
-		    
-		  case is > 125
-		    lenMB = new MemoryBlock( 2 )
-		    lenMB.LittleEndian = false
-		    lenMB.UInt16Value( 0 ) = useLength
-		    lenCode = 126
-		    
-		  case else
-		    lenCode = useLength
-		    
-		  end select
-		  
-		  dim dataMB as MemoryBlock = data
-		  dim maskMB as MemoryBlock
-		  
-		  if masked and data <> "" then
-		    lenCode = lenCode or &b10000000
-		    
-		    maskMB = Crypto.GenerateRandomBytes( 4 )
-		    dim maskIndex as integer
-		    dim lastByte as integer = dataMB.Size - 1
-		    dim dataPtr as Ptr = dataMB
-		    dim maskPtr as Ptr = maskMB
-		    
-		    for i as integer = 0 to lastByte
-		      dataPtr.Byte( i ) = dataPtr.Byte( i ) xor maskPtr.Byte( maskIndex )
-		      maskIndex = maskIndex + 1
-		      if maskIndex = 4 then
-		        maskIndex = 0
-		      end if
-		    next
-		  end if
-		  
-		  //
-		  // Assemble it all
-		  //
-		  
-		  dim mask as string = if( maskMB isa Object, maskMB.StringValue( 0, maskMB.Size ), "" )
-		  dim sendData as string = if( dataMB.Size > 0, dataMB.StringValue( 0, dataMB.Size ),  "" )
-		  dim r as string = _
-		  ChrB( firstByte ) + _
-		  ChrB( lenCode ) + _
-		  mask + _
-		  sendData
-		  
-		  return r
-		  
-		  
-		End Function
-	#tag EndMethod
-
 	#tag Method, Flags = &h0
 		Sub Flush()
 		  if Socket isa Object then
 		    Socket.Flush
+		  end if
+		  
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h0
+		Sub Ping(msg As String = "")
+		  dim f as new M_WebSocket.Frame
+		  f.Content = msg
+		  f.IsFinal = true
+		  f.IsMasked = UseMask
+		  f.Type = Message.Types.Ping
+		  
+		  OutgoingControlFrames.Append f
+		  SendNextFrame
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h21
+		Private Sub SendNextFrame()
+		  if State <> States.Connected then
+		    redim OutgoingUserMessages( -1 )
+		    redim OutgoingControlFrames( -1 )
+		    SendTimer.Mode = Timer.ModeOff
+		    return
+		  end if
+		  
+		  //
+		  // Send any control frames first
+		  //
+		  
+		  if OutgoingControlFrames.Ubound <> -1 then
+		    dim f as M_WebSocket.Frame = OutgoingControlFrames( 0 )
+		    OutgoingControlFrames.Remove 0
+		    
+		    Socket.Write f.ToString
+		    
+		  elseif OutgoingUserMessages.Ubound <> -1 then
+		    dim m as M_WebSocket.Message = OutgoingUserMessages( 0 )
+		    
+		    dim f as M_WebSocket.Frame = m.NextFrame( ContentLimit )
+		    if f isa Object then
+		      Socket.Write f.ToString
+		    end if
+		    
+		    //
+		    // See if the last frame from this message has been sent
+		    //
+		    if m.EOF then
+		      OutgoingUserMessages.Remove 0
+		    end if
+		    
+		  end if
+		  
+		  if SendTimer.Mode = Timer.ModeOff and _
+		    ( OutgoingUserMessages.Ubound <> -1 or OutgoingUserMessages.Ubound <> -1 ) then
+		    SendTimer.Mode = Timer.ModeMultiple
+		  end if
+		  
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h21
+		Private Sub SendTimer_Action(sender As Timer)
+		  SendNextFrame
+		  
+		  if OutgoingUserMessages.Ubound = -1 and OutgoingControlFrames.Ubound = -1 then
+		    sender.Mode = Timer.ModeOff
 		  end if
 		  
 		End Sub
@@ -276,29 +239,61 @@ Implements Writeable
 		  dim data as string = sender.ReadAll
 		  
 		  if State = States.Connected then
-		    dim parts as Pair = DecodeFrame( data )
-		    dim type as Message.Types = parts.Left
-		    data = parts.Right
 		    
-		    select case type
+		    dim f as M_WebSocket.Frame = M_WebSocket.Frame.Decode( data )
+		    if f is nil then
+		      RaiseEvent Error( "Invalid packet received" )
+		      return
+		    end if
+		    
+		    select case f.Type
 		    case Message.Types.Ping
 		      
-		      dim packet as string = EncodeFrame( data, Message.Types.Pong, UseMasked )
-		      Socket.Write packet
+		      dim response as new M_WebSocket.Frame
+		      response.Content = f.Content
+		      response.Type = Message.Types.Pong
+		      response.IsMasked = UseMask
+		      response.IsFinal = true
+		      
+		      OutgoingControlFrames.Append response
+		      SendNextFrame
 		      
 		    case Message.Types.ConnectionClose
 		      DestroySocket
 		      RaiseEvent Disconnected
 		      
 		    case Message.Types.Pong
-		      #pragma warning "Implement ping method and pong event, or something"
+		      RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
 		      
 		    case Message.Types.Continuation
-		      #pragma warning "Implement continuation handling"
+		      if IncomingMessage is nil then
+		        RaiseEvent Error( "A continuation packet was received out of order" )
+		        
+		      else
+		        IncomingMessage.AddFrame( f )
+		        
+		        if IncomingMessage.IsComplete then
+		          RaiseEvent DataReceived( IncomingMessage.Content )
+		          IncomingMessage = nil
+		        end if
+		      end if
 		      
 		    case else
-		      
-		      RaiseEvent ResponseReceived( data )
+		      if IncomingMessage isa Object then
+		        RaiseEvent Error( "A new packet arrived before the previous message was completed" )
+		        
+		      else
+		        if f.IsFinal then
+		          dim content as string = f.Content
+		          if f.Type = Message.Types.Text then
+		            content = content.DefineEncoding( Encodings.UTF8 )
+		          end if
+		          
+		          RaiseEvent DataReceived( content )
+		        else
+		          IncomingMessage = new M_WebSocket.Message( f )
+		        end if
+		      end if
 		      
 		    end select
 		    
@@ -374,12 +369,13 @@ Implements Writeable
 
 	#tag Method, Flags = &h0
 		Sub Write(data As String)
-		  if State = States.Connected and Socket isa object then
-		    dim packet as string = EncodeFrame( data, Message.Types.Text, UseMasked )
-		    Socket.Write packet
-		  else
-		    #pragma warning "Raise an exception?"
-		  end if
+		  dim m as new M_WebSocket.Message
+		  m.Content = data
+		  m.Type = if( data.Encoding is nil, Message.Types.Binary, Message.Types.Text )
+		  m.UseMask = UseMask
+		  
+		  OutgoingUserMessages.Append m
+		  SendNextFrame
 		End Sub
 	#tag EndMethod
 
@@ -398,6 +394,10 @@ Implements Writeable
 	#tag EndHook
 
 	#tag Hook, Flags = &h0
+		Event DataReceived(data As String)
+	#tag EndHook
+
+	#tag Hook, Flags = &h0
 		Event Disconnected()
 	#tag EndHook
 
@@ -406,7 +406,7 @@ Implements Writeable
 	#tag EndHook
 
 	#tag Hook, Flags = &h0
-		Event ResponseReceived(data As String)
+		Event PongReceived(msg As String)
 	#tag EndHook
 
 	#tag Hook, Flags = &h0
@@ -420,6 +420,10 @@ Implements Writeable
 
 	#tag Property, Flags = &h0
 		ForceMasked As Boolean
+	#tag EndProperty
+
+	#tag Property, Flags = &h21
+		Private IncomingMessage As M_WebSocket.Message
 	#tag EndProperty
 
 	#tag Property, Flags = &h21
@@ -441,6 +445,14 @@ Implements Writeable
 		Private mState As States
 	#tag EndProperty
 
+	#tag Property, Flags = &h21
+		Private OutgoingControlFrames() As M_WebSocket.Frame
+	#tag EndProperty
+
+	#tag Property, Flags = &h21
+		Private OutgoingUserMessages() As M_WebSocket.Message
+	#tag EndProperty
+
 	#tag ComputedProperty, Flags = &h0
 		#tag Getter
 			Get
@@ -452,6 +464,10 @@ Implements Writeable
 		#tag EndGetter
 		RemoteAddress As String
 	#tag EndComputedProperty
+
+	#tag Property, Flags = &h21
+		Private SendTimer As Timer
+	#tag EndProperty
 
 	#tag Property, Flags = &h21
 		Private Socket As SSLSocket
@@ -481,7 +497,7 @@ Implements Writeable
 			  return ForceMasked or not IsServer
 			End Get
 		#tag EndGetter
-		Private UseMasked As Boolean
+		Private UseMask As Boolean
 	#tag EndComputedProperty
 
 
@@ -497,6 +513,12 @@ Implements Writeable
 
 
 	#tag ViewBehavior
+		#tag ViewProperty
+			Name="ContentLimit"
+			Group="Behavior"
+			InitialValue="&h7FFF"
+			Type="Integer"
+		#tag EndViewProperty
 		#tag ViewProperty
 			Name="ForceMasked"
 			Group="Behavior"

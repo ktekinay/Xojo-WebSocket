@@ -1,6 +1,27 @@
 #tag Class
 Private Class Message
 	#tag Method, Flags = &h0
+		Sub AddFrame(frame As M_WebSocket.Frame)
+		  if self.Type = Types.Unknown then
+		    mType = frame.Type
+		    
+		  elseif frame.Type = Types.Continuation then
+		    //
+		    // Do nothing
+		    //
+		    
+		  elseif frame.Type <> self.Type then
+		    raise new WebSocketException( "Frame type must match message type" )
+		    
+		  end if
+		  
+		  self.Content = self.Content + frame.Content
+		  IsComplete = frame.IsFinal
+		  
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h0
 		Sub Constructor()
 		  
 		End Sub
@@ -8,7 +29,8 @@ Private Class Message
 
 	#tag Method, Flags = &h0
 		Sub Constructor(frame As M_WebSocket.Frame)
-		  Operator_Add frame
+		  Constructor
+		  AddFrame frame
 		  
 		End Sub
 	#tag EndMethod
@@ -73,29 +95,6 @@ Private Class Message
 	#tag EndMethod
 
 	#tag Method, Flags = &h0
-		Attributes( hidden )  Sub Operator_Add(frame As M_WebSocket.Frame)
-		  Constructor
-		  
-		  if self.Type = Types.Unknown then
-		    mType = frame.Type
-		    
-		  elseif frame.Type = Types.Continuation then
-		    //
-		    // Do nothing
-		    //
-		    
-		  elseif frame.Type <> self.Type then
-		    raise new WebSocketException( "Frame type must match message type" )
-		    
-		  end if
-		  
-		  self.Content = self.Content + frame.Content
-		  IsComplete = frame.IsFinal
-		  
-		End Sub
-	#tag EndMethod
-
-	#tag Method, Flags = &h0
 		Sub Reset()
 		  FramePositionIndex = 1
 		End Sub
@@ -118,9 +117,23 @@ Private Class Message
 	#tag EndMethod
 
 
-	#tag Property, Flags = &h0
+	#tag ComputedProperty, Flags = &h0
+		#tag Getter
+			Get
+			  if IsComplete and Type = Message.Types.Text and mContent.Encoding is nil then
+			    mContent = mContent.DefineEncoding( Encodings.UTF8 )
+			  end if
+			  
+			  return mContent
+			End Get
+		#tag EndGetter
+		#tag Setter
+			Set
+			  mContent = value
+			End Set
+		#tag EndSetter
 		Content As String
-	#tag EndProperty
+	#tag EndComputedProperty
 
 	#tag ComputedProperty, Flags = &h0
 		#tag Note
@@ -140,6 +153,10 @@ Private Class Message
 
 	#tag Property, Flags = &h0
 		IsComplete As Boolean
+	#tag EndProperty
+
+	#tag Property, Flags = &h21
+		Private mContent As String
 	#tag EndProperty
 
 	#tag Property, Flags = &h21
@@ -183,11 +200,6 @@ Private Class Message
 
 	#tag ViewBehavior
 		#tag ViewProperty
-			Name="Content"
-			Group="Behavior"
-			Type="String"
-		#tag EndViewProperty
-		#tag ViewProperty
 			Name="Index"
 			Visible=true
 			Group="ID"
@@ -200,6 +212,11 @@ Private Class Message
 			Group="Position"
 			InitialValue="0"
 			Type="Integer"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="mContent"
+			Group="Behavior"
+			Type="String"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="mType"
