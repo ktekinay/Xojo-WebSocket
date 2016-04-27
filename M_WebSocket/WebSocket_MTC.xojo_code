@@ -1,46 +1,200 @@
 #tag Class
 Class WebSocket_MTC
+Inherits SSLSocket
 Implements Writeable
+	#tag Event
+		Sub Connected()
+		  //
+		  // Do substitutions
+		  //
+		  dim key as string = Crypto.GenerateRandomBytes( 10 )
+		  key = EncodeBase64( key )
+		  
+		  ConnectKey = key
+		  
+		  dim header as string = kGetHeader
+		  
+		  dim resources as string = URL.Resource
+		  if URL.Parameters.Count <> 0 then
+		    resources = resources + "?" + URL.ParametersToString
+		  end if
+		  
+		  header = header.Replace( "%RESOURCES%", resources )
+		  header = header.Replace( "%HOST%", URL.Host )
+		  header = header.Replace( "%KEY%", key )
+		  
+		  if Origin.Trim <> "" then
+		    header = header + "Origin: " + Origin + EndOfLine
+		  end if
+		  
+		  header = header + EndOfLine
+		  header = ReplaceLineEndings( header, EndOfLine.Windows )
+		  super.Write header
+		  
+		  #if false then
+		    //
+		    // The constant, for convenience
+		    //
+		    GET /%RESOURCES% HTTP/1.1
+		    Connection: Upgrade
+		    Host: %HOST%
+		    Sec-WebSocket-Key: %KEY%
+		    Upgrade: websocket
+		    Sec-WebSocket-Version: 13
+		    
+		  #endif
+		End Sub
+	#tag EndEvent
+
+	#tag Event
+		Sub DataAvailable()
+		  dim data as string = ReadAll
+		  
+		  if State = States.Connected then
+		    
+		    dim f as M_WebSocket.Frame = M_WebSocket.Frame.Decode( data )
+		    if f is nil then
+		      RaiseEvent Error( "Invalid packet received" )
+		      return
+		    end if
+		    
+		    select case f.Type
+		    case Message.Types.Ping
+		      
+		      dim response as new M_WebSocket.Frame
+		      response.Content = f.Content
+		      response.Type = Message.Types.Pong
+		      response.IsMasked = UseMask
+		      response.IsFinal = true
+		      
+		      OutgoingControlFrames.Append response
+		      SendNextFrame
+		      
+		    case Message.Types.ConnectionClose
+		      super.Disconnect
+		      mState = States.Disconnected
+		      RaiseEvent Disconnected
+		      
+		    case Message.Types.Pong
+		      RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
+		      
+		    case Message.Types.Continuation
+		      if IncomingMessage is nil then
+		        RaiseEvent Error( "A continuation packet was received out of order" )
+		        
+		      else
+		        IncomingMessage.AddFrame( f )
+		        
+		        if IncomingMessage.IsComplete then
+		          RaiseEvent DataAvailable( IncomingMessage.Content )
+		          IncomingMessage = nil
+		        end if
+		      end if
+		      
+		    case else
+		      if IncomingMessage isa Object then
+		        RaiseEvent Error( "A new packet arrived before the previous message was completed" )
+		        
+		      else
+		        if f.IsFinal then
+		          dim content as string = f.Content
+		          if f.Type = Message.Types.Text then
+		            content = content.DefineEncoding( Encodings.UTF8 )
+		          end if
+		          
+		          RaiseEvent DataAvailable( content )
+		        else
+		          IncomingMessage = new M_WebSocket.Message( f )
+		        end if
+		      end if
+		      
+		    end select
+		    
+		  elseif State = States.Connecting then
+		    //
+		    // Still handling the negotiation
+		    //
+		    
+		    if ValidateHandshake( data ) then
+		      mState = States.Connected
+		      RaiseEvent Connected
+		    else
+		      Close
+		      mState = States.Disconnected
+		      RaiseEvent Error( "Could not negotiate connection" )
+		    end if
+		    
+		  end if
+		  
+		  return
+		End Sub
+	#tag EndEvent
+
+	#tag Event
+		Sub Error()
+		  if LastErrorCode = 102 then
+		    
+		    RaiseEvent Disconnected
+		    
+		  else
+		    
+		    dim data as string = ReadAll
+		    RaiseEvent Error( data )
+		    
+		  end if
+		  
+		  return
+		End Sub
+	#tag EndEvent
+
+
 	#tag Method, Flags = &h0
 		Sub Connect(url As Text)
 		  if State = States.Connected then
 		    raise new WebSocketException( "The WebSocket is already connected" )
 		  end if
 		  
-		  CreateSocket
-		  
 		  dim urlComps as new M_WebSocket.URLComponents( url.Trim )
 		  
 		  dim rx as new RegEx
 		  rx.SearchPattern = "^(?:http|ws)s:"
 		  
-		  Socket.Address = urlComps.Host
+		  Address = urlComps.Host
 		  if urlComps.Port > 0 then
 		    
-		    Socket.Port = urlComps.Port
-		    Socket.Secure = rx.Search( urlComps.Protocol ) isa RegExMatch
+		    Port = urlComps.Port
+		    Secure = rx.Search( urlComps.Protocol ) isa RegExMatch
 		    
 		  else
 		    
 		    if rx.Search( urlComps.Protocol ) isa RegExMatch then
-		      Socket.Secure = true
-		      Socket.Port = 443
+		      Secure = true
 		    else
-		      Socket.Secure = false
-		      Socket.Port = 80
+		      Secure = false
 		    end if
 		    
 		  end if
 		  
+		  if Port <= 0 then
+		    if Secure then
+		      Port = 443
+		    else
+		      Port = 80
+		    end if
+		  end if
+		  
 		  self.URL = urlComps
 		  
-		  Socket.Connect
+		  IsServer = false
+		  super.Connect
 		  mState = States.Connecting
 		End Sub
 	#tag EndMethod
 
 	#tag Method, Flags = &h0
 		Sub Constructor()
+		  super.Constructor
+		  
 		  SendTimer = new Timer
 		  SendTimer.Mode = Timer.ModeOff
 		  SendTimer.Period = 20
@@ -51,53 +205,14 @@ Implements Writeable
 	#tag EndMethod
 
 	#tag Method, Flags = &h21
-		Private Sub CreateSocket()
-		  if Socket is nil then
-		    Socket = new SSLSocket
-		    
-		    AddHandler Socket.Connected, WeakAddressOf Socket_Connected
-		    AddHandler Socket.Error, WeakAddressOf Socket_Error
-		    AddHandler Socket.DataAvailable, WeakAddressOf Socket_DataAvailable
-		    AddHandler Socket.SendComplete, WeakAddressOf Socket_SendComplete
-		    AddHandler Socket.SendProgress, WeakAddressOf Socket_SendProgress
-		    
-		  end if
-		  
-		End Sub
-	#tag EndMethod
-
-	#tag Method, Flags = &h21
-		Private Sub DestroySocket()
-		  if Socket isa Object then
-		    RemoveHandler Socket.Connected, WeakAddressOf Socket_Connected
-		    RemoveHandler Socket.Error, WeakAddressOf Socket_Error
-		    RemoveHandler Socket.DataAvailable, WeakAddressOf Socket_DataAvailable
-		    RemoveHandler Socket.SendComplete, WeakAddressOf Socket_SendComplete
-		    RemoveHandler Socket.SendProgress, WeakAddressOf Socket_SendProgress
-		    Socket.Close
-		    
-		    Socket = nil
-		  end if
-		  
-		  mState = States.Disconnected
-		  
-		  redim OutgoingControlFrames( -1 )
-		  redim OutgoingUserMessages( -1 )
-		  SendTimer.Mode = Timer.ModeOff
-		End Sub
-	#tag EndMethod
-
-	#tag Method, Flags = &h21
 		Private Sub Destructor()
-		  DestroySocket
-		  
 		  if SendTimer isa Timer then
 		    SendTimer.Mode = Timer.ModeOff
 		    RemoveHandler SendTimer.Action, WeakAddressOf SendTimer_Action
 		    SendTimer = nil
 		  end if
 		  
-		  
+		  Close
 		End Sub
 	#tag EndMethod
 
@@ -109,32 +224,29 @@ Implements Writeable
 		  // Do not use internally
 		  //
 		  
-		  if Socket isa Object then
-		    if State = States.Connected then
-		      dim f as new M_WebSocket.Frame
-		      f.Type = Message.Types.ConnectionClose
-		      f.IsFinal = true
-		      
-		      OutgoingControlFrames.Append f
-		      SendNextFrame
-		    end if
+		  if State = States.Connected then
+		    dim f as new M_WebSocket.Frame
+		    f.Type = Message.Types.ConnectionClose
+		    f.IsFinal = true
 		    
-		    //
-		    // The server should respond and 
-		    // disconnect
-		    //
+		    OutgoingControlFrames.Append f
+		    SendNextFrame
+		  elseif IsConnected then
+		    super.Disconnect
 		  end if
 		  
+		  //
+		  // The server should respond and 
+		  // disconnect
+		  //
 		  
 		End Sub
 	#tag EndMethod
 
 	#tag Method, Flags = &h0
-		Sub Flush()
-		  if Socket isa Object then
-		    Socket.Flush
-		  end if
-		  
+		Sub Listen()
+		  IsServer = true
+		  super.Listen
 		End Sub
 	#tag EndMethod
 
@@ -168,14 +280,14 @@ Implements Writeable
 		    dim f as M_WebSocket.Frame = OutgoingControlFrames( 0 )
 		    OutgoingControlFrames.Remove 0
 		    
-		    Socket.Write f.ToString
+		    super.Write f.ToString
 		    
 		  elseif OutgoingUserMessages.Ubound <> -1 then
 		    dim m as M_WebSocket.Message = OutgoingUserMessages( 0 )
 		    
 		    dim f as M_WebSocket.Frame = m.NextFrame( ContentLimit )
 		    if f isa Object then
-		      Socket.Write f.ToString
+		      super.Write f.ToString
 		    end if
 		    
 		    //
@@ -204,166 +316,6 @@ Implements Writeable
 		  end if
 		  
 		End Sub
-	#tag EndMethod
-
-	#tag Method, Flags = &h21
-		Private Sub Socket_Connected(sender As SSLSocket)
-		  //
-		  // Do substitutions
-		  //
-		  dim key as string = Crypto.GenerateRandomBytes( 10 )
-		  key = EncodeBase64( key )
-		  
-		  ConnectKey = key
-		  
-		  dim header as string = kGetHeader
-		  
-		  dim resources as string = URL.Resource
-		  if URL.Parameters.Count <> 0 then
-		    resources = resources + "?" + URL.ParametersToString
-		  end if
-		  
-		  header = header.Replace( "%RESOURCES%", resources )
-		  header = header.Replace( "%HOST%", URL.Host )
-		  header = header.Replace( "%KEY%", key )
-		  
-		  if Origin.Trim <> "" then
-		    header = header + "Origin: " + Origin + EndOfLine
-		  end if
-		  
-		  header = header + EndOfLine
-		  header = ReplaceLineEndings( header, EndOfLine.Windows )
-		  sender.Write header
-		  
-		  #if false then
-		    //
-		    // The constant, for convenience
-		    //
-		    GET /%RESOURCES% HTTP/1.1
-		    Connection: Upgrade
-		    Host: %HOST%
-		    Sec-WebSocket-Key: %KEY%
-		    Upgrade: websocket
-		    Sec-WebSocket-Version: 13
-		    
-		  #endif
-		End Sub
-	#tag EndMethod
-
-	#tag Method, Flags = &h21
-		Private Sub Socket_DataAvailable(sender As SSLSocket)
-		  dim data as string = sender.ReadAll
-		  
-		  if State = States.Connected then
-		    
-		    dim f as M_WebSocket.Frame = M_WebSocket.Frame.Decode( data )
-		    if f is nil then
-		      RaiseEvent Error( "Invalid packet received" )
-		      return
-		    end if
-		    
-		    select case f.Type
-		    case Message.Types.Ping
-		      
-		      dim response as new M_WebSocket.Frame
-		      response.Content = f.Content
-		      response.Type = Message.Types.Pong
-		      response.IsMasked = UseMask
-		      response.IsFinal = true
-		      
-		      OutgoingControlFrames.Append response
-		      SendNextFrame
-		      
-		    case Message.Types.ConnectionClose
-		      DestroySocket
-		      RaiseEvent Disconnected
-		      
-		    case Message.Types.Pong
-		      RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
-		      
-		    case Message.Types.Continuation
-		      if IncomingMessage is nil then
-		        RaiseEvent Error( "A continuation packet was received out of order" )
-		        
-		      else
-		        IncomingMessage.AddFrame( f )
-		        
-		        if IncomingMessage.IsComplete then
-		          RaiseEvent DataReceived( IncomingMessage.Content )
-		          IncomingMessage = nil
-		        end if
-		      end if
-		      
-		    case else
-		      if IncomingMessage isa Object then
-		        RaiseEvent Error( "A new packet arrived before the previous message was completed" )
-		        
-		      else
-		        if f.IsFinal then
-		          dim content as string = f.Content
-		          if f.Type = Message.Types.Text then
-		            content = content.DefineEncoding( Encodings.UTF8 )
-		          end if
-		          
-		          RaiseEvent DataReceived( content )
-		        else
-		          IncomingMessage = new M_WebSocket.Message( f )
-		        end if
-		      end if
-		      
-		    end select
-		    
-		  elseif State = States.Connecting then
-		    //
-		    // Still handling the negotiation
-		    //
-		    
-		    if ValidateHandshake( data ) then
-		      mState = States.Connected
-		      RaiseEvent Connected
-		    else
-		      DestroySocket
-		      mState = States.Disconnected
-		      RaiseEvent Error( "Could not negotiate connection" )
-		    end if
-		    
-		  end if
-		  
-		  return
-		End Sub
-	#tag EndMethod
-
-	#tag Method, Flags = &h21
-		Private Sub Socket_Error(sender As SSLSocket)
-		  if sender.LastErrorCode = 102 then
-		    
-		    DestroySocket
-		    RaiseEvent Disconnected
-		    
-		  else
-		    
-		    dim data as string = sender.ReadAll
-		    RaiseEvent Error( data )
-		    
-		  end if
-		  
-		  return
-		End Sub
-	#tag EndMethod
-
-	#tag Method, Flags = &h21
-		Private Sub Socket_SendComplete(sender As SSLSocket, userAborted As Boolean)
-		  
-		End Sub
-	#tag EndMethod
-
-	#tag Method, Flags = &h21
-		Private Function Socket_SendProgress(sender As SSLSocket, bytesSent As Integer, bytesLeft As Integer) As Boolean
-		  if State = States.Connected then
-		    return RaiseEvent SendProgress( bytesSent, bytesLeft )
-		  end if
-		  
-		End Function
 	#tag EndMethod
 
 	#tag Method, Flags = &h21
@@ -442,22 +394,13 @@ Implements Writeable
 		End Sub
 	#tag EndMethod
 
-	#tag Method, Flags = &h0
-		Function WriteError() As Boolean
-		  if Socket isa Object then
-		    return Socket.WriteError
-		  end if
-		  
-		End Function
-	#tag EndMethod
-
 
 	#tag Hook, Flags = &h0
 		Event Connected()
 	#tag EndHook
 
 	#tag Hook, Flags = &h0
-		Event DataReceived(data As String)
+		Event DataAvailable(data As String)
 	#tag EndHook
 
 	#tag Hook, Flags = &h0
@@ -470,10 +413,6 @@ Implements Writeable
 
 	#tag Hook, Flags = &h0
 		Event PongReceived(msg As String)
-	#tag EndHook
-
-	#tag Hook, Flags = &h0
-		Event SendProgress(bytesSent As Integer, bytesLeft As Integer) As Boolean
 	#tag EndHook
 
 
@@ -497,17 +436,6 @@ Implements Writeable
 		Private IsServer As Boolean
 	#tag EndProperty
 
-	#tag ComputedProperty, Flags = &h0
-		#tag Getter
-			Get
-			  if Socket isa Object then
-			    return Socket.LocalAddress
-			  end if
-			End Get
-		#tag EndGetter
-		LocalAddress As String
-	#tag EndComputedProperty
-
 	#tag Property, Flags = &h21
 		Private mState As States
 	#tag EndProperty
@@ -524,30 +452,14 @@ Implements Writeable
 		Private OutgoingUserMessages() As M_WebSocket.Message
 	#tag EndProperty
 
-	#tag ComputedProperty, Flags = &h0
-		#tag Getter
-			Get
-			  if Socket isa Object then
-			    return Socket.RemoteAddress
-			  end if
-			  
-			End Get
-		#tag EndGetter
-		RemoteAddress As String
-	#tag EndComputedProperty
-
 	#tag Property, Flags = &h21
 		Private SendTimer As Timer
 	#tag EndProperty
 
-	#tag Property, Flags = &h21
-		Private Socket As SSLSocket
-	#tag EndProperty
-
 	#tag ComputedProperty, Flags = &h0
 		#tag Getter
 			Get
-			  if Socket is nil or not Socket.IsConnected then
+			  if not IsConnected then
 			    mState = States.Disconnected
 			  end if
 			  
@@ -585,6 +497,31 @@ Implements Writeable
 
 	#tag ViewBehavior
 		#tag ViewProperty
+			Name="CertificateFile"
+			Group="Behavior"
+			Type="FolderItem"
+			EditorType="File"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="CertificatePassword"
+			Visible=true
+			Group="Behavior"
+			Type="String"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="CertificateRejectionFile"
+			Group="Behavior"
+			Type="FolderItem"
+			EditorType="File"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="ConnectionType"
+			Visible=true
+			Group="Behavior"
+			InitialValue="3"
+			Type="Integer"
+		#tag EndViewProperty
+		#tag ViewProperty
 			Name="ContentLimit"
 			Visible=true
 			Group="Behavior"
@@ -602,25 +539,14 @@ Implements Writeable
 			Visible=true
 			Group="ID"
 			Type="Integer"
-		#tag EndViewProperty
-		#tag ViewProperty
-			Name="Left"
-			Visible=true
-			Group="Position"
-			InitialValue="0"
-			Type="Integer"
-		#tag EndViewProperty
-		#tag ViewProperty
-			Name="LocalAddress"
-			Group="Behavior"
-			Type="String"
-			EditorType="MultiLineEditor"
+			EditorType="Integer"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="Name"
 			Visible=true
 			Group="ID"
 			Type="String"
+			EditorType="String"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="Origin"
@@ -630,10 +556,10 @@ Implements Writeable
 			EditorType="MultiLineEditor"
 		#tag EndViewProperty
 		#tag ViewProperty
-			Name="RemoteAddress"
+			Name="Secure"
+			Visible=true
 			Group="Behavior"
-			Type="String"
-			EditorType="MultiLineEditor"
+			Type="Boolean"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="State"
@@ -651,13 +577,7 @@ Implements Writeable
 			Visible=true
 			Group="ID"
 			Type="String"
-		#tag EndViewProperty
-		#tag ViewProperty
-			Name="Top"
-			Visible=true
-			Group="Position"
-			InitialValue="0"
-			Type="Integer"
+			EditorType="String"
 		#tag EndViewProperty
 	#tag EndViewBehavior
 End Class

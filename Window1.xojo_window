@@ -58,13 +58,15 @@ Begin Window Window1
       Width           =   80
    End
    Begin WebSocket_MTC WS
+      CertificatePassword=   ""
+      ConnectionType  =   3
       ContentLimit    =   32767
       ForceMasked     =   False
       Index           =   -2147483648
-      LocalAddress    =   ""
       LockedInPosition=   False
-      RemoteAddress   =   ""
+      Origin          =   ""
       Scope           =   0
+      Secure          =   False
       State           =   "0"
       TabPanelIndex   =   0
    End
@@ -151,7 +153,7 @@ End
 		End Sub
 	#tag EndEvent
 	#tag Event
-		Sub DataReceived(data As String)
+		Sub DataAvailable(data As String)
 		  return
 		End Sub
 	#tag EndEvent
