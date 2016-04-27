@@ -5,6 +5,12 @@ A WebSocket class for Xojo
 
 This class will allow you to connect to a WebSocket-based server. It handles the initial handshaking and all the packet encoding for you.
 
-# Who Did This
+# Comments and Contributions
 
-This project was developed by Kem Tekinay, MacTechnologies Consulting (ktekinay at mactechnologies.com).
+All contributions to this project will be gratefully considered. Fork this repo to your own, then submit your changes via a Pull Request.
+
+All comments are also welcome.
+
+# Who Did This?!?
+
+This project was created by and is maintained by Kem Tekinay (ktekinay@mactechnologies dot com).
