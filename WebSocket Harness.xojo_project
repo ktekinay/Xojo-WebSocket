@@ -10,6 +10,7 @@ Class=WebSocket_MTC;M_WebSocket/WebSocket_MTC.xojo_code;&h309E17FF;&hC4687FF;fal
 Class=Message;M_WebSocket/Message.xojo_code;&h5C0F67FF;&hC4687FF;false
 Class=Frame;M_WebSocket/Frame.xojo_code;&hEDF4FFF;&hC4687FF;false
 Class=WebSocketException;M_WebSocket/WebSocketException.xojo_code;&h509C8FFF;&hC4687FF;false
+Class=URLComponents;M_WebSocket/URLComponents.xojo_code;&h301DF7FF;&hC4687FF;false
 DefaultWindow=Window1
 AppMenuBar=MainMenuBar
 MajorVersion=1
