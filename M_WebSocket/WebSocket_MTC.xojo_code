@@ -136,7 +136,6 @@ Implements Writeable
 		    else
 		      Close
 		      mState = States.Disconnected
-		      RaiseEvent Error( "Could not negotiate connection" )
 		    end if
 		    
 		  end if
@@ -339,6 +338,8 @@ Implements Writeable
 
 	#tag Method, Flags = &h21
 		Private Function ValidateHandshake(data As String) As Boolean
+		  const kErrorPrefix = "Could not negotiate connection: "
+		  
 		  data = data.DefineEncoding( Encodings.UTF8 )
 		  data = ReplaceLineEndings( data, &uA )
 		  
@@ -347,11 +348,26 @@ Implements Writeable
 		  //
 		  // Confirm the status code
 		  //
-		  rx.SearchPattern = "\AHTTP/\d+(?:\.\d+) 101"
+		  rx.SearchPattern = "\AHTTP/\d+(?:\.\d+) (\d+)"
+		  dim match as RegExMatch = rx.Search( data )
 		  
-		  if rx.Search( data ) is nil then
+		  if match is nil then
+		    RaiseEvent Error kErrorPrefix + "The data returned by the server did not make sense"
 		    return false
 		  end if
+		  
+		  dim responseCode as integer = match.SubExpressionString( 1 ).Val
+		  select case responseCode
+		  case 101
+		    //
+		    // Great, proceed
+		    //
+		    
+		  case else
+		    RaiseEvent Error kErrorPrefix + "Could not handle the response code " + str( responseCode ) + " returned by the server"
+		    return false
+		    
+		  end select
 		  
 		  //
 		  // Parse the headers
@@ -359,7 +375,7 @@ Implements Writeable
 		  rx.SearchPattern = "^([^: ]+):? *(.*)"
 		  
 		  dim headers as new Dictionary
-		  dim match as RegExMatch = rx.Search( data )
+		  match = rx.Search( data )
 		  while match isa RegExMatch
 		    dim key as string = match.SubExpressionString( 1 )
 		    dim value as string = match.SubExpressionString( 2 )
@@ -373,6 +389,7 @@ Implements Writeable
 		  //
 		  if headers.Lookup( "Upgrade", "" ) <> "websocket" or _
 		    headers.Lookup( "Connection", "" ) <> "Upgrade" then
+		    RaiseEvent Error kErrorPrefix + "Missing header keys Upgrade and/or Connection"
 		    return false
 		  end if
 		  
@@ -383,12 +400,14 @@ Implements Writeable
 		  
 		  dim returnedKey as string = headers.Lookup( kHeaderSecAcceptKey, "" ).StringValue.Trim
 		  if returnedKey = "" then
+		    RaiseEvent Error kErrorPrefix + "Missing " + kHeaderSecAcceptKey
 		    return false
 		  end if
 		  
 		  dim expectedKey as string = EncodeBase64( Crypto.SHA1( ConnectKey + kGUID ) )
 		  
 		  if expectedKey <> returnedKey then
+		    RaiseEvent Error kErrorPrefix + "The " + kHeaderSecAcceptKey + " header contained an incorrect value"
 		    return false
 		  end if
 		  
@@ -398,6 +417,13 @@ Implements Writeable
 		  
 		  if headers.HasKey( kHeaderProtocol ) then
 		    AcceptedProtocol = headers.Value( kHeaderProtocol )
+		    if RequestProtocols.IndexOf( AcceptedProtocol ) = -1 then
+		      //
+		      // Some other protocol
+		      //
+		      RaiseEvent Error kErrorPrefix + "The server accepted protocol " + AcceptedProtocol + " but that was not requested"
+		      return false
+		    end if
 		  end if
 		  
 		  return true
