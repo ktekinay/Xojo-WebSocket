@@ -73,7 +73,6 @@ Implements Writeable
 		    case Message.Types.ConnectionClose
 		      super.Disconnect
 		      mState = States.Disconnected
-		      RaiseEvent Disconnected
 		      
 		    case Message.Types.Pong
 		      RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
