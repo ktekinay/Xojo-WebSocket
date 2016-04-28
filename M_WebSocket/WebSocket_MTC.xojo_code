@@ -65,7 +65,15 @@ Implements Writeable
 		  
 		  if State = States.Connected then
 		    
-		    dim f as M_WebSocket.Frame = M_WebSocket.Frame.Decode( data )
+		    dim f as M_WebSocket.Frame
+		    
+		    try
+		      f = M_WebSocket.Frame.Decode( data )
+		    catch err as WebSocketException
+		      RaiseEvent Error err.Message
+		      return
+		    end try
+		    
 		    if f is nil then
 		      RaiseEvent Error( "Invalid packet received" )
 		      return
@@ -96,15 +104,21 @@ Implements Writeable
 		        //
 		        Disconnect
 		      end if
+		      
 		    case Message.Types.Pong
 		      RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
 		      
 		    case Message.Types.Continuation
 		      if IncomingMessage is nil then
-		        RaiseEvent Error( "A continuation packet was received out of order" )
+		        RaiseEvent Error "A continuation packet was received out of order" 
 		        
 		      else
-		        IncomingMessage.AddFrame( f )
+		        try
+		          IncomingMessage.AddFrame( f )
+		        catch err as WebSocketException
+		          RaiseEvent Error err.Message
+		          return
+		        end try
 		        
 		        if IncomingMessage.IsComplete then
 		          RaiseEvent DataAvailable( IncomingMessage.Content )
@@ -114,15 +128,11 @@ Implements Writeable
 		      
 		    case else
 		      if IncomingMessage isa Object then
-		        RaiseEvent Error( "A new packet arrived before the previous message was completed" )
+		        RaiseEvent Error "A new packet arrived before the previous message was completed"
 		        
 		      else
 		        if f.IsFinal then
 		          dim content as string = f.Content
-		          if f.Type = Message.Types.Text then
-		            content = content.DefineEncoding( Encodings.UTF8 )
-		          end if
-		          
 		          RaiseEvent DataAvailable( content )
 		        else
 		          IncomingMessage = new M_WebSocket.Message( f )
