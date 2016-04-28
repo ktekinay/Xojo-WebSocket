@@ -1,5 +1,9 @@
 #tag Module
 Protected Module M_WebSocket
+	#tag Constant, Name = kVersion, Type = Double, Dynamic = False, Default = \"0.5", Scope = Protected
+	#tag EndConstant
+
+
 	#tag ViewBehavior
 		#tag ViewProperty
 			Name="Index"
