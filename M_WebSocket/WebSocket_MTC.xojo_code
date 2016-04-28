@@ -78,9 +78,18 @@ Implements Writeable
 		      SendNextFrame
 		      
 		    case Message.Types.ConnectionClose
-		      super.Disconnect
-		      mState = States.Disconnected
-		      
+		      if RequestedDisconnect then
+		        //
+		        // This is in response to our message
+		        //
+		        super.Disconnect
+		        mState = States.Disconnected
+		      else
+		        //
+		        // Server is requesting a disconnect
+		        //
+		        Disconnect
+		      end if
 		    case Message.Types.Pong
 		      RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
 		      
@@ -193,6 +202,7 @@ Implements Writeable
 		  
 		  AcceptedProtocol = ""
 		  IsServer = false
+		  RequestedDisconnect = false
 		  super.Connect
 		  mState = States.Connecting
 		  
@@ -226,19 +236,20 @@ Implements Writeable
 
 	#tag Method, Flags = &h0
 		Sub Disconnect()
-		  //
-		  // THIS IS FOR EXTERNAL USE ONLY
-		  // 
-		  // Do not use internally
-		  //
-		  
 		  if State = States.Connected then
 		    dim f as new M_WebSocket.Frame
 		    f.Type = Message.Types.ConnectionClose
 		    f.IsFinal = true
 		    
+		    RequestedDisconnect = true
+		    
+		    redim OutgoingControlFrames( -1 )
+		    redim OutgoingUserMessages( -1 )
 		    OutgoingControlFrames.Append f
 		    SendNextFrame
+		    
+		    mState = States.Disconnecting
+		    
 		  elseif IsConnected then
 		    super.Disconnect
 		  end if
@@ -468,6 +479,10 @@ Implements Writeable
 		Private OutgoingUserMessages() As M_WebSocket.Message
 	#tag EndProperty
 
+	#tag Property, Flags = &h21
+		Private RequestedDisconnect As Boolean
+	#tag EndProperty
+
 	#tag Property, Flags = &h0
 		RequestProtocols() As String
 	#tag EndProperty
@@ -520,7 +535,8 @@ Implements Writeable
 	#tag Enum, Name = States, Type = Integer, Flags = &h0
 		Disconnected
 		  Connecting
-		Connected
+		  Connected
+		Disconnecting
 	#tag EndEnum
 
 
@@ -605,6 +621,7 @@ Implements Writeable
 				"0 - Disconnected"
 				"1 - Connecting"
 				"2 - Connected"
+				"3 - Disconnecting"
 			#tag EndEnumValues
 		#tag EndViewProperty
 		#tag ViewProperty
