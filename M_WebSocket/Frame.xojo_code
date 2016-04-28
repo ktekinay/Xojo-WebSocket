@@ -160,12 +160,13 @@ Private Class Frame
 			  dim r as string = _
 			  ChrB( firstByte ) + _
 			  ChrB( lenCode ) + _
-			  mask + _
-			  sendData
-			  
-			  return r
-			  
-			  
+			  if( lenMB isa object, lenMB.StringValue( 0, lenMB.Size ), "" ) + _
+			    mask + _
+			    sendData
+			    
+			    return r
+			    
+			    
 			End Get
 		#tag EndGetter
 		ToString As String
