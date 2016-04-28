@@ -34,6 +34,12 @@ Implements Writeable
 		    header = header + kHeaderProtocol + ": " + join( RequestProtocols, ", " ) + EndOfLine
 		  end if
 		  
+		  if RequestHeaders isa object and RequestHeaders.Count <> 0 then
+		    for i as integer = 0 to RequestHeaders.Count - 1
+		      header = header + RequestHeaders.Name( i ) + ": " + RequestHeaders.Value( i ) + EndOfLine
+		    next
+		  end if
+		  
 		  header = header + EndOfLine
 		  header = ReplaceLineEndings( header, EndOfLine.Windows )
 		  super.Write header
@@ -161,6 +167,12 @@ Implements Writeable
 		End Sub
 	#tag EndEvent
 
+
+	#tag Method, Flags = &h0
+		Sub ClearRequestHeaders()
+		  RequestHeaders = nil
+		End Sub
+	#tag EndMethod
 
 	#tag Method, Flags = &h0
 		Sub Connect(url As Text)
@@ -344,6 +356,24 @@ Implements Writeable
 		End Sub
 	#tag EndMethod
 
+	#tag Method, Flags = &h0
+		Sub SetRequestHeader(name As String, value As String)
+		  name = name.Trim
+		  value = value.Trim
+		  
+		  if name = "" or value = "" then
+		    raise new WebSocketException( "The header name or value was empty" )
+		  end if
+		  
+		  if RequestHeaders is nil then
+		    RequestHeaders = new InternetHeaders
+		  end if
+		  
+		  RequestHeaders.AppendHeader name, value
+		  
+		End Sub
+	#tag EndMethod
+
 	#tag Method, Flags = &h21
 		Private Function ValidateHandshake(data As String) As Boolean
 		  const kErrorPrefix = "Could not negotiate connection: "
@@ -513,6 +543,10 @@ Implements Writeable
 		Private RequestedDisconnect As Boolean
 	#tag EndProperty
 
+	#tag Property, Flags = &h21
+		Private RequestHeaders As InternetHeaders
+	#tag EndProperty
+
 	#tag Property, Flags = &h0
 		RequestProtocols() As String
 	#tag EndProperty
@@ -608,12 +642,6 @@ Implements Writeable
 			Group="Behavior"
 			InitialValue="&h7FFF"
 			Type="Integer"
-		#tag EndViewProperty
-		#tag ViewProperty
-			Name="ForceMasked"
-			Visible=true
-			Group="Behavior"
-			Type="Boolean"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="Index"
