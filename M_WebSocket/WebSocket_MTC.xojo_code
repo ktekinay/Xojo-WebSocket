@@ -283,36 +283,44 @@ Implements Writeable
 
 	#tag Method, Flags = &h21
 		Private Sub SendNextFrame()
-		  if State <> States.Connected then
-		    redim OutgoingUserMessages( -1 )
-		    redim OutgoingControlFrames( -1 )
-		    SendTimer.Mode = Timer.ModeOff
-		    return
-		  end if
-		  
-		  //
-		  // Send any control frames first
-		  //
-		  
-		  if OutgoingControlFrames.Ubound <> -1 then
-		    dim f as M_WebSocket.Frame = OutgoingControlFrames( 0 )
-		    OutgoingControlFrames.Remove 0
+		  if State <> States.Connecting then
+		    //
+		    // If it is connecting, we can save these messages until after it's connected
+		    // or clear them if we get disconnected
+		    //
 		    
-		    super.Write f.ToString
-		    
-		  elseif OutgoingUserMessages.Ubound <> -1 then
-		    dim m as M_WebSocket.Message = OutgoingUserMessages( 0 )
-		    
-		    dim f as M_WebSocket.Frame = m.NextFrame( ContentLimit )
-		    if f isa Object then
-		      super.Write f.ToString
+		    if State <> States.Connected then
+		      redim OutgoingUserMessages( -1 )
+		      redim OutgoingControlFrames( -1 )
+		      SendTimer.Mode = Timer.ModeOff
+		      return
 		    end if
 		    
 		    //
-		    // See if the last frame from this message has been sent
+		    // Send any control frames first
 		    //
-		    if m.EOF then
-		      OutgoingUserMessages.Remove 0
+		    
+		    if OutgoingControlFrames.Ubound <> -1 then
+		      dim f as M_WebSocket.Frame = OutgoingControlFrames( 0 )
+		      OutgoingControlFrames.Remove 0
+		      
+		      super.Write f.ToString
+		      
+		    elseif OutgoingUserMessages.Ubound <> -1 then
+		      dim m as M_WebSocket.Message = OutgoingUserMessages( 0 )
+		      
+		      dim f as M_WebSocket.Frame = m.NextFrame( ContentLimit )
+		      if f isa Object then
+		        super.Write f.ToString
+		      end if
+		      
+		      //
+		      // See if the last frame from this message has been sent
+		      //
+		      if m.EOF then
+		        OutgoingUserMessages.Remove 0
+		      end if
+		      
 		    end if
 		    
 		  end if
