@@ -60,10 +60,21 @@ Private Class Frame
 		  
 		  dim data as string = if( dataLen > 0, dataMB.StringValue( firstDataByte, lastDataByte - firstDataByte + 1 ), "" )
 		  
+		  if isFinal and type = Message.Types.Text then
+		    //
+		    // Make sure it's UTF-8
+		    //
+		    if not Encodings.UTF8.IsValidData( data ) then
+		      raise new WebSocketException( "The data was not valid UTF-8" )
+		    end if
+		    data = data.DefineEncoding( Encodings.UTF8 )
+		  end if
+		  
 		  r.IsFinal = isFinal
 		  r.Type = type
 		  r.IsMasked = masked
 		  r.Content = data
+		  
 		  
 		  return r
 		End Function
@@ -167,11 +178,27 @@ Private Class Frame
 
 	#tag ViewBehavior
 		#tag ViewProperty
+			Name="Content"
+			Group="Behavior"
+			Type="String"
+		#tag EndViewProperty
+		#tag ViewProperty
 			Name="Index"
 			Visible=true
 			Group="ID"
 			InitialValue="-2147483648"
 			Type="Integer"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="IsFinal"
+			Group="Behavior"
+			InitialValue="True"
+			Type="Boolean"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="IsMasked"
+			Group="Behavior"
+			Type="Boolean"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="Left"
@@ -200,9 +227,9 @@ Private Class Frame
 			Type="Integer"
 		#tag EndViewProperty
 		#tag ViewProperty
-			Name="Type"
+			Name="ToString"
 			Group="Behavior"
-			Type="Integer"
+			Type="String"
 		#tag EndViewProperty
 	#tag EndViewBehavior
 End Class
