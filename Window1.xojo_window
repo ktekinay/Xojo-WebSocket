@@ -58,11 +58,12 @@ Begin Window Window1
       Width           =   80
    End
    Begin WebSocket_MTC WS
+      AcceptedProtocol=   ""
       CertificateFile =   
       CertificatePassword=   ""
       CertificateRejectionFile=   
       ConnectionType  =   3
-      ContentLimit    =   32767
+      ContentLimit    =   125
       ForceMasked     =   False
       Index           =   -2147483648
       LockedInPosition=   False
@@ -154,7 +155,13 @@ End
 #tag Events WS
 	#tag Event
 		Sub Connected()
-		  me.Write "Hi"
+		  dim s as string = "-123456789"
+		  while s.LenB < me.ContentLimit
+		    s = s + s
+		  wend
+		  s = s + " fin"
+		  
+		  me.Write s
 		End Sub
 	#tag EndEvent
 	#tag Event
