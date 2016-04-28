@@ -477,10 +477,6 @@ Implements Writeable
 		ContentLimit As Integer = 32767
 	#tag EndProperty
 
-	#tag Property, Flags = &h0
-		ForceMasked As Boolean
-	#tag EndProperty
-
 	#tag Property, Flags = &h21
 		Private IncomingMessage As M_WebSocket.Message
 	#tag EndProperty
@@ -538,7 +534,7 @@ Implements Writeable
 	#tag ComputedProperty, Flags = &h21
 		#tag Getter
 			Get
-			  return ForceMasked or not IsServer
+			  return not IsServer
 			End Get
 		#tag EndGetter
 		Private UseMask As Boolean
