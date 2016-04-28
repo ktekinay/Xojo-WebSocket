@@ -63,8 +63,7 @@ Begin Window Window1
       CertificatePassword=   ""
       CertificateRejectionFile=   
       ConnectionType  =   3
-      ContentLimit    =   125
-      ForceMasked     =   False
+      ContentLimit    =   1250
       Index           =   -2147483648
       LockedInPosition=   False
       Origin          =   ""
@@ -156,7 +155,7 @@ End
 	#tag Event
 		Sub Connected()
 		  dim s as string = "-123456789"
-		  while s.LenB < me.ContentLimit
+		  while s.LenB < 160
 		    s = s + s
 		  wend
 		  s = s + " fin"

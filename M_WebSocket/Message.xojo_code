@@ -18,6 +18,16 @@ Private Class Message
 		  self.Content = self.Content + frame.Content
 		  IsComplete = frame.IsFinal
 		  
+		  if IsComplete and Type = Message.Types.Text then
+		    //
+		    // Make sure it's UTF-8
+		    //
+		    if not Encodings.UTF8.IsValidData( self.Content ) then
+		      raise new WebSocketException( "The data was not valid UTF-8" )
+		    end if
+		    self.Content = self.Content.DefineEncoding( Encodings.UTF8 )
+		  end if
+		  
 		End Sub
 	#tag EndMethod
 
@@ -110,7 +120,7 @@ Private Class Message
 		  Types.Pong, _
 		  Types.ConnectionClose, _
 		  Types.Continuation _
-		   )
+		  )
 		  
 		  return r
 		End Function
@@ -200,6 +210,16 @@ Private Class Message
 
 	#tag ViewBehavior
 		#tag ViewProperty
+			Name="Content"
+			Group="Behavior"
+			Type="String"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="EOF"
+			Group="Behavior"
+			Type="Boolean"
+		#tag EndViewProperty
+		#tag ViewProperty
 			Name="Index"
 			Visible=true
 			Group="ID"
@@ -207,32 +227,16 @@ Private Class Message
 			Type="Integer"
 		#tag EndViewProperty
 		#tag ViewProperty
+			Name="IsComplete"
+			Group="Behavior"
+			Type="Boolean"
+		#tag EndViewProperty
+		#tag ViewProperty
 			Name="Left"
 			Visible=true
 			Group="Position"
 			InitialValue="0"
 			Type="Integer"
-		#tag EndViewProperty
-		#tag ViewProperty
-			Name="mContent"
-			Group="Behavior"
-			Type="String"
-		#tag EndViewProperty
-		#tag ViewProperty
-			Name="mType"
-			Group="Behavior"
-			InitialValue="Types.Unknown"
-			Type="Types"
-			EditorType="Enum"
-			#tag EnumValues
-				"-1 - Unknown"
-				"0 - Continuation"
-				"1 - Text"
-				"2 - Binary"
-				"8 - ConnectionClose"
-				"9 - Ping"
-				"10 - Pong"
-			#tag EndEnumValues
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="Name"
@@ -252,6 +256,11 @@ Private Class Message
 			Group="Position"
 			InitialValue="0"
 			Type="Integer"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="UseMask"
+			Group="Behavior"
+			Type="Boolean"
 		#tag EndViewProperty
 	#tag EndViewBehavior
 End Class

@@ -34,6 +34,12 @@ Implements Writeable
 		    header = header + kHeaderProtocol + ": " + join( RequestProtocols, ", " ) + EndOfLine
 		  end if
 		  
+		  if RequestHeaders isa object and RequestHeaders.Count <> 0 then
+		    for i as integer = 0 to RequestHeaders.Count - 1
+		      header = header + RequestHeaders.Name( i ) + ": " + RequestHeaders.Value( i ) + EndOfLine
+		    next
+		  end if
+		  
 		  header = header + EndOfLine
 		  header = ReplaceLineEndings( header, EndOfLine.Windows )
 		  super.Write header
@@ -59,7 +65,15 @@ Implements Writeable
 		  
 		  if State = States.Connected then
 		    
-		    dim f as M_WebSocket.Frame = M_WebSocket.Frame.Decode( data )
+		    dim f as M_WebSocket.Frame
+		    
+		    try
+		      f = M_WebSocket.Frame.Decode( data )
+		    catch err as WebSocketException
+		      RaiseEvent Error err.Message
+		      return
+		    end try
+		    
 		    if f is nil then
 		      RaiseEvent Error( "Invalid packet received" )
 		      return
@@ -90,15 +104,21 @@ Implements Writeable
 		        //
 		        Disconnect
 		      end if
+		      
 		    case Message.Types.Pong
 		      RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
 		      
 		    case Message.Types.Continuation
 		      if IncomingMessage is nil then
-		        RaiseEvent Error( "A continuation packet was received out of order" )
+		        RaiseEvent Error "A continuation packet was received out of order" 
 		        
 		      else
-		        IncomingMessage.AddFrame( f )
+		        try
+		          IncomingMessage.AddFrame( f )
+		        catch err as WebSocketException
+		          RaiseEvent Error err.Message
+		          return
+		        end try
 		        
 		        if IncomingMessage.IsComplete then
 		          RaiseEvent DataAvailable( IncomingMessage.Content )
@@ -108,15 +128,11 @@ Implements Writeable
 		      
 		    case else
 		      if IncomingMessage isa Object then
-		        RaiseEvent Error( "A new packet arrived before the previous message was completed" )
+		        RaiseEvent Error "A new packet arrived before the previous message was completed"
 		        
 		      else
 		        if f.IsFinal then
 		          dim content as string = f.Content
-		          if f.Type = Message.Types.Text then
-		            content = content.DefineEncoding( Encodings.UTF8 )
-		          end if
-		          
 		          RaiseEvent DataAvailable( content )
 		        else
 		          IncomingMessage = new M_WebSocket.Message( f )
@@ -161,6 +177,12 @@ Implements Writeable
 		End Sub
 	#tag EndEvent
 
+
+	#tag Method, Flags = &h0
+		Sub ClearRequestHeaders()
+		  RequestHeaders = nil
+		End Sub
+	#tag EndMethod
 
 	#tag Method, Flags = &h0
 		Sub Connect(url As Text)
@@ -261,8 +283,10 @@ Implements Writeable
 		End Sub
 	#tag EndMethod
 
-	#tag Method, Flags = &h0
-		Sub Listen()
+	#tag Method, Flags = &h21
+		Private Sub Listen()
+		  raise new WebSocketException( "Server functions have not been implemented yet" )
+		  
 		  IsServer = true
 		  super.Listen
 		End Sub
@@ -340,6 +364,24 @@ Implements Writeable
 		  if OutgoingUserMessages.Ubound = -1 and OutgoingControlFrames.Ubound = -1 then
 		    sender.Mode = Timer.ModeOff
 		  end if
+		  
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h0
+		Sub SetRequestHeader(name As String, value As String)
+		  name = name.Trim
+		  value = value.Trim
+		  
+		  if name = "" or value = "" then
+		    raise new WebSocketException( "The header name or value was empty" )
+		  end if
+		  
+		  if RequestHeaders is nil then
+		    RequestHeaders = new InternetHeaders
+		  end if
+		  
+		  RequestHeaders.AppendHeader name, value
 		  
 		End Sub
 	#tag EndMethod
@@ -513,6 +555,10 @@ Implements Writeable
 		Private RequestedDisconnect As Boolean
 	#tag EndProperty
 
+	#tag Property, Flags = &h21
+		Private RequestHeaders As InternetHeaders
+	#tag EndProperty
+
 	#tag Property, Flags = &h0
 		RequestProtocols() As String
 	#tag EndProperty
@@ -608,12 +654,6 @@ Implements Writeable
 			Group="Behavior"
 			InitialValue="&h7FFF"
 			Type="Integer"
-		#tag EndViewProperty
-		#tag ViewProperty
-			Name="ForceMasked"
-			Visible=true
-			Group="Behavior"
-			Type="Boolean"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="Index"
