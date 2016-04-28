@@ -7,7 +7,7 @@ Implements Writeable
 		  //
 		  // Do substitutions
 		  //
-		  dim key as string = Crypto.GenerateRandomBytes( 10 )
+		  dim key as string = Crypto.GenerateRandomBytes( 16 )
 		  key = EncodeBase64( key )
 		  
 		  ConnectKey = key
