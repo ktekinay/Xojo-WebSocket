@@ -1,35 +1,41 @@
 #tag Class
 Class WebSocket_MTC
-Inherits SSLSocket
+Inherits HTTPSecureSocket
 Implements Writeable
 	#tag Event
 		Sub Connected()
 		  //
 		  // Do substitutions
 		  //
-		  dim key as string = Crypto.GenerateRandomBytes( 10 )
-		  key = EncodeBase64( key )
+		  'dim key as string = Crypto.GenerateRandomBytes( 10 )
+		  'key = EncodeBase64( key )
+		  '
+		  'ConnectKey = key
+		  '
+		  'SetRequestHeader kHeaderSecKey, key
+		  'Get URL.ToString
 		  
-		  ConnectKey = key
+		  'dim header as string = kGetHeader
+		  '
+		  'dim resources as string = URL.Resource
+		  'if URL.Parameters.Count <> 0 then
+		  'resources = resources + "?" + URL.ParametersToString
+		  'end if
+		  '
+		  'header = header.Replace( "%RESOURCES%", resources )
+		  'header = header.Replace( "%HOST%", URL.Host )
+		  'header = header.Replace( "%KEY%", key )
+		  '
+		  'if Origin.Trim <> "" then
+		  'header = header + "Origin: " + Origin + EndOfLine
+		  'end if
+		  '
+		  'header = header + EndOfLine
+		  'header = ReplaceLineEndings( header, EndOfLine.Windows )
+		  'super.Write header
 		  
-		  dim header as string = kGetHeader
-		  
-		  dim resources as string = URL.Resource
-		  if URL.Parameters.Count <> 0 then
-		    resources = resources + "?" + URL.ParametersToString
-		  end if
-		  
-		  header = header.Replace( "%RESOURCES%", resources )
-		  header = header.Replace( "%HOST%", URL.Host )
-		  header = header.Replace( "%KEY%", key )
-		  
-		  if Origin.Trim <> "" then
-		    header = header + "Origin: " + Origin + EndOfLine
-		  end if
-		  
-		  header = header + EndOfLine
-		  header = ReplaceLineEndings( header, EndOfLine.Windows )
-		  super.Write header
+		  dim content as string = self.Lookahead
+		  content = content
 		  
 		  #if false then
 		    //
@@ -47,91 +53,7 @@ Implements Writeable
 	#tag EndEvent
 
 	#tag Event
-		Sub DataAvailable()
-		  dim data as string = ReadAll
-		  
-		  if State = States.Connected then
-		    
-		    dim f as M_WebSocket.Frame = M_WebSocket.Frame.Decode( data )
-		    if f is nil then
-		      RaiseEvent Error( "Invalid packet received" )
-		      return
-		    end if
-		    
-		    select case f.Type
-		    case Message.Types.Ping
-		      
-		      dim response as new M_WebSocket.Frame
-		      response.Content = f.Content
-		      response.Type = Message.Types.Pong
-		      response.IsMasked = UseMask
-		      response.IsFinal = true
-		      
-		      OutgoingControlFrames.Append response
-		      SendNextFrame
-		      
-		    case Message.Types.ConnectionClose
-		      super.Disconnect
-		      mState = States.Disconnected
-		      RaiseEvent Disconnected
-		      
-		    case Message.Types.Pong
-		      RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
-		      
-		    case Message.Types.Continuation
-		      if IncomingMessage is nil then
-		        RaiseEvent Error( "A continuation packet was received out of order" )
-		        
-		      else
-		        IncomingMessage.AddFrame( f )
-		        
-		        if IncomingMessage.IsComplete then
-		          RaiseEvent DataAvailable( IncomingMessage.Content )
-		          IncomingMessage = nil
-		        end if
-		      end if
-		      
-		    case else
-		      if IncomingMessage isa Object then
-		        RaiseEvent Error( "A new packet arrived before the previous message was completed" )
-		        
-		      else
-		        if f.IsFinal then
-		          dim content as string = f.Content
-		          if f.Type = Message.Types.Text then
-		            content = content.DefineEncoding( Encodings.UTF8 )
-		          end if
-		          
-		          RaiseEvent DataAvailable( content )
-		        else
-		          IncomingMessage = new M_WebSocket.Message( f )
-		        end if
-		      end if
-		      
-		    end select
-		    
-		  elseif State = States.Connecting then
-		    //
-		    // Still handling the negotiation
-		    //
-		    
-		    if ValidateHandshake( data ) then
-		      mState = States.Connected
-		      RaiseEvent Connected
-		    else
-		      Close
-		      mState = States.Disconnected
-		      RaiseEvent Error( "Could not negotiate connection" )
-		    end if
-		    
-		  end if
-		  
-		  return
-		End Sub
-	#tag EndEvent
-
-	#tag Event
-		Sub Error()
+		Sub Error(code as integer)
 		  if LastErrorCode = 102 then
 		    
 		    RaiseEvent Disconnected
@@ -140,6 +62,27 @@ Implements Writeable
 		    
 		    dim data as string = ReadAll
 		    RaiseEvent Error( data )
+		    
+		  end if
+		  
+		  return
+		End Sub
+	#tag EndEvent
+
+	#tag Event
+		Sub PageReceived(url as string, httpStatus as integer, headers as internetHeaders, content as string)
+		  if State = States.Connecting then
+		    //
+		    // Still handling the negotiation
+		    //
+		    
+		    if ValidateHandshake( httpStatus, headers ) then
+		      mState = States.Connected
+		      RaiseEvent Connected
+		      AddHandler DataAvailable, WeakAddressOf Handle_DataAvailable
+		    else
+		      RaiseEvent Error( "Could not negotiate connection" )
+		    end if
 		    
 		  end if
 		  
@@ -186,7 +129,15 @@ Implements Writeable
 		  self.URL = urlComps
 		  
 		  IsServer = false
-		  super.Connect
+		  
+		  dim key as string = Crypto.GenerateRandomBytes( 10 )
+		  key = EncodeBase64( key )
+		  
+		  ConnectKey = key
+		  
+		  SetRequestHeader kHeaderSecKey + ":", key
+		  Get url
+		  
 		  mState = States.Connecting
 		End Sub
 	#tag EndMethod
@@ -239,6 +190,71 @@ Implements Writeable
 		  // The server should respond and 
 		  // disconnect
 		  //
+		  
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h21
+		Private Sub Handle_DataAvailable(sender As SSLSocket)
+		  dim data as string = ReadAll
+		  
+		  dim f as M_WebSocket.Frame = M_WebSocket.Frame.Decode( data )
+		  if f is nil then
+		    RaiseEvent Error( "Invalid packet received" )
+		    return
+		  end if
+		  
+		  select case f.Type
+		  case Message.Types.Ping
+		    
+		    dim response as new M_WebSocket.Frame
+		    response.Content = f.Content
+		    response.Type = Message.Types.Pong
+		    response.IsMasked = UseMask
+		    response.IsFinal = true
+		    
+		    OutgoingControlFrames.Append response
+		    SendNextFrame
+		    
+		  case Message.Types.ConnectionClose
+		    super.Disconnect
+		    mState = States.Disconnected
+		    RaiseEvent Disconnected
+		    
+		  case Message.Types.Pong
+		    RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
+		    
+		  case Message.Types.Continuation
+		    if IncomingMessage is nil then
+		      RaiseEvent Error( "A continuation packet was received out of order" )
+		      
+		    else
+		      IncomingMessage.AddFrame( f )
+		      
+		      if IncomingMessage.IsComplete then
+		        RaiseEvent WebSocketDataAvailable( IncomingMessage.Content )
+		        IncomingMessage = nil
+		      end if
+		    end if
+		    
+		  case else
+		    if IncomingMessage isa Object then
+		      RaiseEvent Error( "A new packet arrived before the previous message was completed" )
+		      
+		    else
+		      if f.IsFinal then
+		        dim content as string = f.Content
+		        if f.Type = Message.Types.Text then
+		          content = content.DefineEncoding( Encodings.UTF8 )
+		        end if
+		        
+		        RaiseEvent WebSocketDataAvailable( content )
+		      else
+		        IncomingMessage = new M_WebSocket.Message( f )
+		      end if
+		    end if
+		    
+		  end select
 		  
 		End Sub
 	#tag EndMethod
@@ -319,51 +335,34 @@ Implements Writeable
 	#tag EndMethod
 
 	#tag Method, Flags = &h21
-		Private Function ValidateHandshake(data As String) As Boolean
-		  data = data.DefineEncoding( Encodings.UTF8 )
-		  data = ReplaceLineEndings( data, &uA )
-		  
-		  dim rx as new RegEx
-		  
+		Private Function ValidateHandshake(status As Integer, headers As InternetHeaders) As Boolean
 		  //
 		  // Confirm the status code
 		  //
-		  rx.SearchPattern = "\AHTTP/\d+(?:\.\d+) 101"
-		  
-		  if rx.Search( data ) is nil then
+		  if status <> 101 then
 		    return false
 		  end if
 		  
 		  //
-		  // Parse the headers
-		  //
-		  rx.SearchPattern = "^([^: ]+):? *(.*)"
-		  
-		  dim headers as new Dictionary
-		  dim match as RegExMatch = rx.Search( data )
-		  while match isa RegExMatch
-		    dim key as string = match.SubExpressionString( 1 )
-		    dim value as string = match.SubExpressionString( 2 )
-		    headers.Value( key ) = value
-		    
-		    match = rx.Search
-		  wend
-		  
-		  //
 		  // Validate the required headers
 		  //
-		  if headers.Lookup( "Upgrade", "" ) <> "websocket" or _
-		    headers.Lookup( "Connection", "" ) <> "Upgrade" then
+		  dim headerDict as new Dictionary
+		  for i as integer = 0 to headers.Count - 1
+		    dim name as string = headers.Name( i )
+		    headerDict.Value( name) = headers.Value( i )
+		  next
+		  
+		  if headerDict.Lookup( "Upgrade", "" ) <> "websocket" or _
+		    headerDict.Lookup( "Connection", "" ) <> "Upgrade" then
 		    return false
 		  end if
 		  
 		  //
 		  // Validate Sec-WebSocket-Accept if present
 		  //
-		  const kAcceptKey = "Sec-WebSocket-Accept"
 		  const kGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 		  
-		  dim returnedKey as string = headers.Lookup( kAcceptKey, "" ).StringValue.Trim
+		  dim returnedKey as string = headerDict.Lookup( kHeaderSecKey, "" ).StringValue.Trim
 		  if returnedKey = "" then
 		    return false
 		  end if
@@ -400,10 +399,6 @@ Implements Writeable
 	#tag EndHook
 
 	#tag Hook, Flags = &h0
-		Event DataAvailable(data As String)
-	#tag EndHook
-
-	#tag Hook, Flags = &h0
 		Event Disconnected()
 	#tag EndHook
 
@@ -413,6 +408,10 @@ Implements Writeable
 
 	#tag Hook, Flags = &h0
 		Event PongReceived(msg As String)
+	#tag EndHook
+
+	#tag Hook, Flags = &h0
+		Event WebSocketDataAvailable(data As String)
 	#tag EndHook
 
 
@@ -485,6 +484,9 @@ Implements Writeable
 
 
 	#tag Constant, Name = kGetHeader, Type = String, Dynamic = False, Default = \"GET /%RESOURCES% HTTP/1.1\nConnection: Upgrade\nHost: %HOST%\nSec-WebSocket-Key: %KEY%\nUpgrade: websocket\nSec-WebSocket-Version: 13\n", Scope = Private
+	#tag EndConstant
+
+	#tag Constant, Name = kHeaderSecKey, Type = String, Dynamic = False, Default = \"Sec-WebSocket-Accept", Scope = Private
 	#tag EndConstant
 
 

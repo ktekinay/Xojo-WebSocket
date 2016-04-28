@@ -58,9 +58,12 @@ Begin Window Window1
       Width           =   80
    End
    Begin WebSocket_MTC WS
+      CertificateFile =   
       CertificatePassword=   ""
+      CertificateRejectionFile=   
       ConnectionType  =   3
       ContentLimit    =   32767
+      Enabled         =   True
       ForceMasked     =   False
       Index           =   -2147483648
       LockedInPosition=   False
@@ -153,7 +156,7 @@ End
 		End Sub
 	#tag EndEvent
 	#tag Event
-		Sub DataAvailable(data As String)
+		Sub WebSocketDataAvailable(data As String)
 		  return
 		End Sub
 	#tag EndEvent
