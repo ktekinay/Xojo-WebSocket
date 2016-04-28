@@ -283,8 +283,10 @@ Implements Writeable
 		End Sub
 	#tag EndMethod
 
-	#tag Method, Flags = &h0
-		Sub Listen()
+	#tag Method, Flags = &h21
+		Private Sub Listen()
+		  raise new WebSocketException( "Server functions have not been implemented yet" )
+		  
 		  IsServer = true
 		  super.Listen
 		End Sub
