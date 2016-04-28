@@ -58,7 +58,9 @@ Begin Window Window1
       Width           =   80
    End
    Begin WebSocket_MTC WS
+      CertificateFile =   
       CertificatePassword=   ""
+      CertificateRejectionFile=   
       ConnectionType  =   3
       ContentLimit    =   32767
       ForceMasked     =   False
@@ -141,6 +143,9 @@ End
 #tag Events btnConnect
 	#tag Event
 		Sub Action()
+		  redim WS.RequestProtocols( -1 )
+		  WS.RequestProtocols.Append "chat"
+		  
 		  WS.Connect "ws://echo.websocket.org"
 		  
 		End Sub

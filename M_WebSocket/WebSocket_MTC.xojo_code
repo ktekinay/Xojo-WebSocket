@@ -27,6 +27,13 @@ Implements Writeable
 		    header = header + "Origin: " + Origin + EndOfLine
 		  end if
 		  
+		  if RequestProtocols.Ubound <> -1 then
+		    for i as integer = 0 to RequestProtocols.Ubound
+		      RequestProtocols( i ) = RequestProtocols( i ).Trim
+		    next
+		    header = header + kHeaderProtocol + ": " + join( RequestProtocols, ", " ) + EndOfLine
+		  end if
+		  
 		  header = header + EndOfLine
 		  header = ReplaceLineEndings( header, EndOfLine.Windows )
 		  super.Write header
@@ -184,9 +191,11 @@ Implements Writeable
 		  
 		  self.URL = urlComps
 		  
+		  AcceptedProtocol = ""
 		  IsServer = false
 		  super.Connect
 		  mState = States.Connecting
+		  
 		End Sub
 	#tag EndMethod
 
@@ -359,10 +368,9 @@ Implements Writeable
 		  //
 		  // Validate Sec-WebSocket-Accept if present
 		  //
-		  const kAcceptKey = "Sec-WebSocket-Accept"
 		  const kGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 		  
-		  dim returnedKey as string = headers.Lookup( kAcceptKey, "" ).StringValue.Trim
+		  dim returnedKey as string = headers.Lookup( kHeaderSecAcceptKey, "" ).StringValue.Trim
 		  if returnedKey = "" then
 		    return false
 		  end if
@@ -376,6 +384,11 @@ Implements Writeable
 		  //
 		  // If we get here, all the validation passed
 		  //
+		  
+		  if headers.HasKey( kHeaderProtocol ) then
+		    AcceptedProtocol = headers.Value( kHeaderProtocol )
+		  end if
+		  
 		  return true
 		  
 		End Function
@@ -415,6 +428,10 @@ Implements Writeable
 	#tag EndHook
 
 
+	#tag Property, Flags = &h0
+		AcceptedProtocol As String
+	#tag EndProperty
+
 	#tag Property, Flags = &h21
 		Private ConnectKey As String
 	#tag EndProperty
@@ -449,6 +466,10 @@ Implements Writeable
 
 	#tag Property, Flags = &h21
 		Private OutgoingUserMessages() As M_WebSocket.Message
+	#tag EndProperty
+
+	#tag Property, Flags = &h0
+		RequestProtocols() As String
 	#tag EndProperty
 
 	#tag Property, Flags = &h21
@@ -486,6 +507,15 @@ Implements Writeable
 	#tag Constant, Name = kGetHeader, Type = String, Dynamic = False, Default = \"GET /%RESOURCES% HTTP/1.1\nConnection: Upgrade\nHost: %HOST%\nSec-WebSocket-Key: %KEY%\nUpgrade: websocket\nSec-WebSocket-Version: 13\n", Scope = Private
 	#tag EndConstant
 
+	#tag Constant, Name = kHeaderProtocol, Type = String, Dynamic = False, Default = \"Sec-WebSocket-Protocol", Scope = Private
+	#tag EndConstant
+
+	#tag Constant, Name = kHeaderSecAcceptKey, Type = String, Dynamic = False, Default = \"Sec-WebSocket-Accept", Scope = Private
+	#tag EndConstant
+
+	#tag Constant, Name = kHeaderSecKey, Type = String, Dynamic = False, Default = \"Sec-WebSocket-Key", Scope = Private
+	#tag EndConstant
+
 
 	#tag Enum, Name = States, Type = Integer, Flags = &h0
 		Disconnected
@@ -495,6 +525,12 @@ Implements Writeable
 
 
 	#tag ViewBehavior
+		#tag ViewProperty
+			Name="AcceptedProtocol"
+			Group="Behavior"
+			Type="String"
+			EditorType="MultiLineEditor"
+		#tag EndViewProperty
 		#tag ViewProperty
 			Name="CertificateFile"
 			Group="Behavior"
