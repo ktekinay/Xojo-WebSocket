@@ -1,6 +1,6 @@
 #tag Module
 Protected Module M_WebSocket
-	#tag Constant, Name = kVersion, Type = Double, Dynamic = False, Default = \"0.5.5", Scope = Protected
+	#tag Constant, Name = kVersion, Type = String, Dynamic = False, Default = \"0.5.5", Scope = Protected
 	#tag EndConstant
 
 
