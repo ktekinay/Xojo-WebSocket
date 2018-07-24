@@ -1,73 +1,78 @@
 #tag Class
 Private Class Frame
 	#tag Method, Flags = &h0
-		Shared Function Decode(dataMB as MemoryBlock) As M_WebSocket.Frame()
+		Shared Function Decode(dataMB as MemoryBlock, byref offset as UInt64) As M_WebSocket.Frame()
 		  Dim frames() As M_WebSocket.Frame
-		  Dim p As UInt64 = 0
-		  While p < dataMB.Size
+		  offset = 0
+		  While offset < dataMB.Size
 		    
-		    dataMB.LittleEndian = False
+		    dataMB.LittleEndian = false
 		    Dim dataPtr As Ptr = dataMB
 		    
-		    Dim isFinal As Boolean = (dataPtr.Byte(p + 0) And &b10000000) <> 0
-		    Dim opCode As Integer = dataPtr.Byte(p + 0) And &b01111111
-		    Dim type As Message.Types = Message.Types(opCode)
+		    Dim isFinal As Boolean = (dataPtr.Byte(offset) And &b10000000) <> 0
+		    Dim opCode As Integer = dataPtr.Byte(offset) And &b01111111
+		    dim type as Message.Types = Message.Types( opCode )
 		    
-		    If Message.ValidTypes.IndexOf(type) = -1 Then
-		      Raise New WebSocketException("Packet type is invalid")
-		    End If
+		    if Message.ValidTypes.IndexOf( type ) = -1 then
+		      raise new WebSocketException( "Packet type is invalid" )
+		    end if
 		    
-		    Dim lenCode As Byte = dataPtr.Byte(p + 1)
-		    Dim masked As Boolean = (lenCode And &b10000000) <> 0
-		    lenCode = lenCode And &b01111111
+		    Dim lenCode As Byte = dataPtr.Byte(offset + 1)
+		    dim masked as boolean = ( lenCode and &b10000000 ) <> 0
+		    lenCode = lenCode and &b01111111
 		    
-		    Dim dataLen As UInt64
-		    Dim firstDataByte As Integer = p + 2
+		    dim dataLen as UInt64
+		    Dim firstDataByte As Integer = offset + 2
 		    
-		    Select Case lenCode
-		    Case 127
-		      dataLen = dataMB.UInt64Value(p + 2)
+		    select case lenCode
+		    case 127
+		      dataLen = dataMB.UInt64Value(offset + 2)
 		      firstDataByte = firstDataByte + 8
 		      
 		    Case 126
-		      dataLen = dataMB.UInt16Value(p + 2)
+		      dataLen = dataMB.UInt16Value(offset + 2)
 		      firstDataByte = firstDataByte + 2
 		      
-		    Case Else
+		    case else
 		      dataLen = lenCode
 		      
-		    End Select
+		    end select
 		    
 		    Dim lastDataByte As Integer = firstDataByte + dataLen
 		    
-		    If masked And dataLen > 0 Then
-		      Dim maskMB As MemoryBlock = dataMB.StringValue(firstDataByte, 4)
-		      Dim maskPtr As Ptr = maskMB
+		    if masked and dataLen > 0 then
+		      dim maskMB as MemoryBlock = dataMB.StringValue( firstDataByte, 4 )
+		      dim maskPtr as Ptr = maskMB
 		      
 		      firstDataByte = firstDataByte + 4
 		      
-		      Dim maskIndex As Integer
-		      For i As Integer = firstDataByte To lastDataByte
-		        dataPtr.Byte(i) = dataPtr.Byte(i) Xor maskPtr.Byte(maskIndex)
+		      dim maskIndex as integer
+		      for i as integer = firstDataByte to lastDataByte
+		        dataPtr.Byte( i ) = dataPtr.Byte( i ) xor maskPtr.Byte( maskIndex )
 		        
 		        maskIndex = maskIndex + 1
-		        If maskIndex = 4 Then
+		        if maskIndex = 4 then
 		          maskIndex = 0
-		        End If
-		      Next
+		        end if
+		      next
 		    End If
 		    
-		    Dim data As String = If(dataLen > 0, dataMB.StringValue(firstDataByte, lastDataByte - firstDataByte), "")
+		    Dim data As String
+		    Try
+		      data = If(dataLen > 0, dataMB.StringValue(firstDataByte, lastDataByte - firstDataByte), "")
+		    Catch ex As OutOfBoundsException
+		      Exit While
+		    End Try
 		    
-		    If isFinal And type = Message.Types.Text Then
+		    if isFinal and type = Message.Types.Text then
 		      //
 		      // Make sure it's UTF-8
 		      //
-		      If Not Encodings.UTF8.IsValidData(data) Then
-		        Raise New WebSocketException("The data was not valid UTF-8")
-		      End If
-		      data = data.DefineEncoding(Encodings.UTF8)
-		    End If
+		      if not Encodings.UTF8.IsValidData( data ) then
+		        raise new WebSocketException( "The data was not valid UTF-8" )
+		      end if
+		      data = data.DefineEncoding( Encodings.UTF8 )
+		    end if
 		    
 		    Dim r As New M_WebSocket.Frame
 		    
@@ -78,7 +83,7 @@ Private Class Frame
 		    
 		    frames.Append r
 		    
-		    p = lastDataByte
+		    offset = lastDataByte
 		  Wend
 		  
 		  Return frames
