@@ -65,82 +65,84 @@ Implements Writeable
 		  
 		  if State = States.Connected then
 		    
-		    dim f as M_WebSocket.Frame
+		    Dim fa() As M_WebSocket.Frame
 		    
 		    try
-		      f = M_WebSocket.Frame.Decode( data )
+		      fa = M_WebSocket.Frame.Decode(data)
 		    catch err as WebSocketException
 		      RaiseEvent Error err.Message
 		      return
 		    end try
 		    
-		    if f is nil then
-		      RaiseEvent Error( "Invalid packet received" )
-		      return
-		    end if
-		    
-		    select case f.Type
-		    case Message.Types.Ping
-		      
-		      dim response as new M_WebSocket.Frame
-		      response.Content = f.Content
-		      response.Type = Message.Types.Pong
-		      response.IsMasked = UseMask
-		      response.IsFinal = true
-		      
-		      OutgoingControlFrames.Append response
-		      SendNextFrame
-		      
-		    case Message.Types.ConnectionClose
-		      if RequestedDisconnect then
-		        //
-		        // This is in response to our message
-		        //
-		        super.Disconnect
-		        mState = States.Disconnected
-		      else
-		        //
-		        // Server is requesting a disconnect
-		        //
-		        Disconnect
+		    For i As Integer = 0 To UBound(fa)
+		      Dim f As M_WebSocket.Frame = fa(i)
+		      if f is nil then
+		        RaiseEvent Error( "Invalid packet received" )
+		        Return
 		      end if
 		      
-		    case Message.Types.Pong
-		      RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
-		      
-		    case Message.Types.Continuation
-		      if IncomingMessage is nil then
-		        RaiseEvent Error "A continuation packet was received out of order" 
+		      select case f.Type
+		      case Message.Types.Ping
 		        
-		      else
-		        try
-		          IncomingMessage.AddFrame( f )
-		        catch err as WebSocketException
-		          RaiseEvent Error err.Message
-		          return
-		        end try
+		        Dim response As New M_WebSocket.Frame
+		        response.Content = f.Content
+		        response.Type = Message.Types.Pong
+		        response.IsMasked = UseMask
+		        response.IsFinal = true
 		        
-		        if IncomingMessage.IsComplete then
-		          RaiseEvent DataAvailable( IncomingMessage.Content )
-		          IncomingMessage = nil
-		        end if
-		      end if
-		      
-		    case else
-		      if IncomingMessage isa Object then
-		        RaiseEvent Error "A new packet arrived before the previous message was completed"
+		        OutgoingControlFrames.Append response
+		        SendNextFrame
 		        
-		      else
-		        if f.IsFinal then
-		          dim content as string = f.Content
-		          RaiseEvent DataAvailable( content )
+		      case Message.Types.ConnectionClose
+		        if RequestedDisconnect then
+		          //
+		          // This is in response to our message
+		          //
+		          super.Disconnect
+		          mState = States.Disconnected
 		        else
-		          IncomingMessage = new M_WebSocket.Message( f )
+		          //
+		          // Server is requesting a disconnect
+		          //
+		          Disconnect
 		        end if
-		      end if
-		      
-		    end select
-		    
+		        
+		      case Message.Types.Pong
+		        RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
+		        
+		      case Message.Types.Continuation
+		        if IncomingMessage is nil then
+		          RaiseEvent Error "A continuation packet was received out of order" 
+		          
+		        else
+		          try
+		            IncomingMessage.AddFrame( f )
+		          catch err as WebSocketException
+		            RaiseEvent Error err.Message
+		            return
+		          end try
+		          
+		          if IncomingMessage.IsComplete then
+		            RaiseEvent DataAvailable( IncomingMessage.Content )
+		            IncomingMessage = nil
+		          end if
+		        end if
+		        
+		      case else
+		        if IncomingMessage isa Object then
+		          RaiseEvent Error "A new packet arrived before the previous message was completed"
+		          
+		        else
+		          if f.IsFinal then
+		            dim content as string = f.Content
+		            RaiseEvent DataAvailable( content )
+		          else
+		            IncomingMessage = new M_WebSocket.Message( f )
+		          end if
+		        end if
+		        
+		      end select
+		    Next i
 		  elseif State = States.Connecting then
 		    //
 		    // Still handling the negotiation
