@@ -1,82 +1,118 @@
 #tag Class
 Private Class Frame
 	#tag Method, Flags = &h0
-		 Shared Function Decode(dataMB as MemoryBlock) As M_WebSocket.Frame
-		  dim r as new M_WebSocket.Frame
+		Shared Function Decode(dataMB As MemoryBlock, ByRef remainder As String) As M_WebSocket.Frame()
+		  dim frames() as M_WebSocket.Frame
 		  
-		  if dataMB.Size = 0 then
-		    return r
-		  end if
+		  dataMB.LittleEndian = False
+		  dim dataPtr as ptr = dataMB
 		  
-		  dataMB.LittleEndian = false
-		  dim dataPtr as Ptr = dataMB
-		  dim lastDataByte as integer = dataMB.Size - 1
+		  dim offset as integer
 		  
-		  dim isFinal as boolean = ( dataPtr.Byte( 0 ) and &b10000000 ) <> 0
-		  dim opCode as integer = dataPtr.Byte( 0 ) and &b01111111
-		  dim type as Message.Types = Message.Types( opCode )
-		  
-		  if Message.ValidTypes.IndexOf( type ) = -1 then
-		    raise new WebSocketException( "Packet type is invalid" )
-		  end if
-		  
-		  dim lenCode as byte = dataPtr.Byte( 1 )
-		  dim masked as boolean = ( lenCode and &b10000000 ) <> 0
-		  lenCode = lenCode and &b01111111
-		  
-		  dim dataLen as UInt64
-		  dim firstDataByte as integer = 2 
-		  
-		  select case lenCode
-		  case 127
-		    dataLen = dataMB.UInt64Value( 2 )
-		    firstDataByte = firstDataByte + 8
+		  while offset < dataMB.Size
 		    
-		  case 126
-		    dataLen = dataMB.UInt16Value( 2 )
-		    firstDataByte = firstDataByte + 2
+		    dim isFinal as boolean = ( dataPtr.Byte( offset ) and &b10000000 ) <> 0
+		    dim opCode as Integer = dataPtr.Byte( offset ) and &b01111111
+		    dim type as Message.Types = Message.Types( opCode )
 		    
-		  case else
-		    dataLen = lenCode
-		    
-		  end select
-		  
-		  if masked and dataLen > 0 then
-		    dim maskMB as MemoryBlock = dataMB.StringValue( firstDataByte, 4 )
-		    dim maskPtr as Ptr = maskMB
-		    
-		    firstDataByte = firstDataByte + 4
-		    
-		    dim maskIndex as integer
-		    for i as integer = firstDataByte to lastDataByte
-		      dataPtr.Byte( i ) = dataPtr.Byte( i ) xor maskPtr.Byte( maskIndex )
-		      
-		      maskIndex = maskIndex + 1
-		      if maskIndex = 4 then
-		        maskIndex = 0
-		      end if
-		    next
-		  end if
-		  
-		  dim data as string = if( dataLen > 0, dataMB.StringValue( firstDataByte, lastDataByte - firstDataByte + 1 ), "" )
-		  
-		  if isFinal and type = Message.Types.Text then
-		    //
-		    // Make sure it's UTF-8
-		    //
-		    if not Encodings.UTF8.IsValidData( data ) then
-		      raise new WebSocketException( "The data was not valid UTF-8" )
+		    if Message.ValidTypes.IndexOf( type ) = -1 then
+		      raise new WebSocketException( "Packet type is invalid" )
 		    end if
-		    data = data.DefineEncoding( Encodings.UTF8 )
+		    
+		    dim lenCode as Byte = dataPtr.Byte( offset + 1 )
+		    dim masked as boolean = ( lenCode and &b10000000 ) <> 0
+		    lenCode = lenCode and &b01111111
+		    
+		    dim dataLen as UInt64
+		    dim firstDataByte as Integer = offset + 2
+		    
+		    select case lenCode
+		    case 127
+		      dataLen = dataMB.UInt64Value( offset + 2 )
+		      firstDataByte = firstDataByte + 8
+		      
+		    case 126
+		      dataLen = dataMB.UInt16Value( offset + 2 )
+		      firstDataByte = firstDataByte + 2
+		      
+		    case else
+		      dataLen = lenCode
+		      
+		    end select
+		    
+		    dim lastDataByte as Integer = firstDataByte + dataLen
+		    
+		    if masked and dataLen > 0 then
+		      dim maskMB as MemoryBlock = dataMB.StringValue( firstDataByte, 4 )
+		      dim maskPtr as ptr = maskMB
+		      
+		      firstDataByte = firstDataByte + 4
+		      
+		      dim maskIndex as Integer
+		      for i as Integer = firstDataByte to lastDataByte
+		        dataPtr.Byte( i ) = dataPtr.Byte( i ) xor maskPtr.Byte( maskIndex )
+		        
+		        maskIndex = maskIndex + 1
+		        if maskIndex = 4 then
+		          maskIndex = 0
+		        end if
+		      next
+		    end if
+		    
+		    dim data as String
+		    if dataLen = 0 then
+		      data = ""
+		    else
+		      dim requiredDataLen as integer = lastDataByte - firstDataByte
+		      dim remainingDataLen as integer = dataMB.Size - firstDataByte
+		      
+		      if remainingDataLen < requiredDataLen then
+		        //
+		        // Not enough data left
+		        //
+		        if DebugBuild then
+		          System.DebugLog "Partial Packet: " + format( requiredDataLen, "#,0" ) + " bytes required, " +_
+		          format( remainingDataLen, "#,0" ) + " bytes available"
+		        end if
+		        
+		        exit while
+		      end if
+		      
+		      data = dataMB.StringValue( firstDataByte, requiredDataLen )
+		    end if
+		    
+		    if isFinal and type = Message.Types.Text then
+		      //
+		      // Make sure it's UTF-8
+		      //
+		      if not Encodings.UTF8.IsValidData( data ) then
+		        raise new WebSocketException( "The data was not valid UTF-8" )
+		      end if
+		      data = data.DefineEncoding( Encodings.UTF8 )
+		    end if
+		    
+		    dim r as new M_WebSocket.Frame
+		    
+		    r.isFinal = isFinal
+		    r.type = type
+		    r.IsMasked = masked
+		    r.Content = data
+		    
+		    frames.Append r
+		    
+		    offset = lastDataByte
+		  wend
+		  
+		  //
+		  // Set the remainder
+		  //
+		  if offset < dataMB.Size then
+		    remainder = dataMB.StringValue( offset, dataMB.Size - offset )
+		  else
+		    remainder = ""
 		  end if
 		  
-		  r.IsFinal = isFinal
-		  r.Type = type
-		  r.IsMasked = masked
-		  r.Content = data
-		  
-		  
-		  return r
+		  return frames
 		End Function
 	#tag EndMethod
 
@@ -182,6 +218,7 @@ Private Class Frame
 			Name="Content"
 			Group="Behavior"
 			Type="String"
+			EditorType="MultiLineEditor"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="Index"
@@ -231,6 +268,7 @@ Private Class Frame
 			Name="ToString"
 			Group="Behavior"
 			Type="String"
+			EditorType="MultiLineEditor"
 		#tag EndViewProperty
 	#tag EndViewBehavior
 End Class

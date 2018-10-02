@@ -61,85 +61,101 @@ Implements Writeable
 
 	#tag Event
 		Sub DataAvailable()
-		  dim data as string = ReadAll
+		  //
+		  // Concatenate the data left over from last time with all incoming data
+		  //
+		  dim data as string
+		  if true then // scope
+		    dim ib as string = IncomingBuffer
+		    if ib <> "" then
+		      ib = ib // A place to break
+		    end if
+		    dim current as string = ReadAll
+		    data = ib + current
+		  end if
+		  IncomingBuffer = ""
 		  
 		  if State = States.Connected then
 		    
-		    dim f as M_WebSocket.Frame
+		    dim fs() as M_WebSocket.Frame
 		    
 		    try
-		      f = M_WebSocket.Frame.Decode( data )
+		      fs = M_WebSocket.Frame.Decode( data, IncomingBuffer )
+		      
 		    catch err as WebSocketException
-		      RaiseEvent Error err.Message
+		      RaiseEvent error err.Message
 		      return
+		      
 		    end try
 		    
-		    if f is nil then
-		      RaiseEvent Error( "Invalid packet received" )
-		      return
-		    end if
-		    
-		    select case f.Type
-		    case Message.Types.Ping
-		      
-		      dim response as new M_WebSocket.Frame
-		      response.Content = f.Content
-		      response.Type = Message.Types.Pong
-		      response.IsMasked = UseMask
-		      response.IsFinal = true
-		      
-		      OutgoingControlFrames.Append response
-		      SendNextFrame
-		      
-		    case Message.Types.ConnectionClose
-		      if RequestedDisconnect then
-		        //
-		        // This is in response to our message
-		        //
-		        super.Disconnect
-		        mState = States.Disconnected
-		      else
-		        //
-		        // Server is requesting a disconnect
-		        //
-		        Disconnect
+		    for i as Integer = 0 to fs.Ubound
+		      dim f as M_WebSocket.Frame = fs( i )
+		      if f is nil then
+		        RaiseEvent error ( "Invalid packet received" )
+		        return
 		      end if
 		      
-		    case Message.Types.Pong
-		      RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
-		      
-		    case Message.Types.Continuation
-		      if IncomingMessage is nil then
-		        RaiseEvent Error "A continuation packet was received out of order" 
+		      select case f.Type
+		      case Message.Types.Ping
 		        
-		      else
-		        try
-		          IncomingMessage.AddFrame( f )
-		        catch err as WebSocketException
-		          RaiseEvent Error err.Message
-		          return
-		        end try
+		        dim response as new M_WebSocket.Frame
+		        response.Content = f.Content
+		        response.Type = Message.Types.Pong
+		        response.IsMasked = UseMask
+		        response.IsFinal = True
 		        
-		        if IncomingMessage.IsComplete then
-		          RaiseEvent DataAvailable( IncomingMessage.Content )
-		          IncomingMessage = nil
-		        end if
-		      end if
-		      
-		    case else
-		      if IncomingMessage isa Object then
-		        RaiseEvent Error "A new packet arrived before the previous message was completed"
+		        OutgoingControlFrames.Append response
+		        SendNextFrame
 		        
-		      else
-		        if f.IsFinal then
-		          dim content as string = f.Content
-		          RaiseEvent DataAvailable( content )
+		      case Message.Types.ConnectionClose
+		        if RequestedDisconnect then
+		          //
+		          // This is in response to our message
+		          //
+		          super.Disconnect
+		          mState = States.Disconnected
 		        else
-		          IncomingMessage = new M_WebSocket.Message( f )
+		          //
+		          // Server is requesting a disconnect
+		          //
+		          Disconnect
 		        end if
-		      end if
-		      
-		    end select
+		        
+		      case Message.Types.Pong
+		        RaiseEvent PongReceived( f.Content.DefineEncoding( Encodings.UTF8 ) )
+		        
+		      case Message.Types.Continuation
+		        if IncomingMessage is nil then
+		          RaiseEvent error "A continuation packet was received out of order"
+		          
+		        else
+		          try
+		            IncomingMessage.AddFrame( f )
+		          catch err as WebSocketException
+		            RaiseEvent error err.Message
+		            return
+		          end try
+		          
+		          if IncomingMessage.IsComplete then
+		            RaiseEvent DataAvailable( IncomingMessage.Content )
+		            IncomingMessage = nil
+		          end if
+		        end if
+		        
+		      case else
+		        if IncomingMessage isa Object then
+		          RaiseEvent error "A new packet arrived before the previous message was completed"
+		          
+		        else
+		          if f.IsFinal then
+		            RaiseEvent DataAvailable( f.Content )
+		          else
+		            IncomingMessage = new M_WebSocket.Message( f )
+		          end if
+		        end if
+		        
+		      end select
+		    next i
 		    
 		  elseif State = States.Connecting then
 		    //
@@ -153,8 +169,8 @@ Implements Writeable
 		      Close
 		      mState = States.Disconnected
 		    end if
-		    
 		  end if
+		  
 		  
 		  return
 		End Sub
@@ -528,6 +544,10 @@ Implements Writeable
 	#tag EndProperty
 
 	#tag Property, Flags = &h21
+		Private IncomingBuffer As String
+	#tag EndProperty
+
+	#tag Property, Flags = &h21
 		Private IncomingMessage As M_WebSocket.Message
 	#tag EndProperty
 
@@ -618,28 +638,55 @@ Implements Writeable
 
 	#tag ViewBehavior
 		#tag ViewProperty
+			Name="Address"
+			Visible=true
+			Group="Behavior"
+			Type="String"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="Port"
+			Visible=true
+			Group="Behavior"
+			InitialValue="0"
+			Type="Integer"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="SSLConnected"
+			Group="Behavior"
+			Type="Boolean"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="SSLConnecting"
+			Group="Behavior"
+			Type="Boolean"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="BytesAvailable"
+			Group="Behavior"
+			Type="Integer"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="BytesLeftToSend"
+			Group="Behavior"
+			Type="Integer"
+		#tag EndViewProperty
+		#tag ViewProperty
+			Name="LastErrorCode"
+			Group="Behavior"
+			Type="Integer"
+		#tag EndViewProperty
+		#tag ViewProperty
 			Name="AcceptedProtocol"
 			Group="Behavior"
 			Type="String"
 			EditorType="MultiLineEditor"
 		#tag EndViewProperty
 		#tag ViewProperty
-			Name="CertificateFile"
-			Group="Behavior"
-			Type="FolderItem"
-			EditorType="File"
-		#tag EndViewProperty
-		#tag ViewProperty
 			Name="CertificatePassword"
 			Visible=true
 			Group="Behavior"
 			Type="String"
-		#tag EndViewProperty
-		#tag ViewProperty
-			Name="CertificateRejectionFile"
-			Group="Behavior"
-			Type="FolderItem"
-			EditorType="File"
+			EditorType="MultiLineEditor"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="ConnectionType"
