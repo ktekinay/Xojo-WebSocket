@@ -1,13 +1,15 @@
 #tag Class
 Private Class Frame
 	#tag Method, Flags = &h0
-		Shared Function Decode(dataMB as MemoryBlock, byref offset as UInt64) As M_WebSocket.Frame()
+		Shared Function Decode(dataMB As MemoryBlock, ByRef remainder As String) As M_WebSocket.Frame()
 		  dim frames() as M_WebSocket.Frame
-		  offset = 0
+		  
+		  dataMB.LittleEndian = False
+		  dim dataPtr as ptr = dataMB
+		  
+		  dim offset as integer
+		  
 		  while offset < dataMB.Size
-		    
-		    dataMB.LittleEndian = False
-		    dim dataPtr as ptr = dataMB
 		    
 		    dim isFinal as boolean = ( dataPtr.Byte( offset ) and &b10000000 ) <> 0
 		    dim opCode as Integer = dataPtr.Byte( offset ) and &b01111111
@@ -58,11 +60,26 @@ Private Class Frame
 		    end if
 		    
 		    dim data as String
-		    try
-		      data = if( dataLen > 0, dataMB.StringValue( firstDataByte, lastDataByte - firstDataByte ), "" )
-		    catch ex as OutOfBoundsException
-		      exit while
-		    end try
+		    if dataLen = 0 then
+		      data = ""
+		    else
+		      dim requiredDataLen as integer = lastDataByte - firstDataByte
+		      dim remainingDataLen as integer = dataMB.Size - firstDataByte
+		      
+		      if remainingDataLen < requiredDataLen then
+		        //
+		        // Not enough data left
+		        //
+		        if DebugBuild then
+		          System.DebugLog "Partial Packet: " + format( requiredDataLen, "#,0" ) + " bytes required, " +_
+		          format( remainingDataLen, "#,0" ) + " bytes available"
+		        end if
+		        
+		        exit while
+		      end if
+		      
+		      data = dataMB.StringValue( firstDataByte, requiredDataLen )
+		    end if
 		    
 		    if isFinal and type = Message.Types.Text then
 		      //
@@ -85,6 +102,15 @@ Private Class Frame
 		    
 		    offset = lastDataByte
 		  wend
+		  
+		  //
+		  // Set the remainder
+		  //
+		  if offset < dataMB.Size then
+		    remainder = dataMB.StringValue( offset, dataMB.Size - offset )
+		  else
+		    remainder = ""
+		  end if
 		  
 		  return frames
 		End Function

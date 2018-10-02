@@ -53,22 +53,28 @@ Begin Window Window1
       TextSize        =   0.0
       TextUnit        =   0
       Top             =   190
+      Transparent     =   True
       Underline       =   False
       Visible         =   True
       Width           =   80
    End
    Begin WebSocket_MTC WS
       AcceptedProtocol=   ""
-      CertificateFile =   
+      Address         =   ""
+      BytesAvailable  =   0
+      BytesLeftToSend =   0
       CertificatePassword=   ""
-      CertificateRejectionFile=   
       ConnectionType  =   3
       ContentLimit    =   1250
       Index           =   -2147483648
+      LastErrorCode   =   0
       LockedInPosition=   False
       Origin          =   ""
+      Port            =   0
       Scope           =   0
       Secure          =   False
+      SSLConnected    =   False
+      SSLConnecting   =   False
       State           =   "0"
       TabPanelIndex   =   0
    End
@@ -99,6 +105,7 @@ Begin Window Window1
       TextSize        =   0.0
       TextUnit        =   0
       Top             =   190
+      Transparent     =   True
       Underline       =   False
       Visible         =   True
       Width           =   116
@@ -130,14 +137,72 @@ Begin Window Window1
       TextSize        =   0.0
       TextUnit        =   0
       Top             =   236
+      Transparent     =   True
       Underline       =   False
       Visible         =   True
       Width           =   80
+   End
+   Begin Label lblPingResult
+      AutoDeactivate  =   True
+      Bold            =   False
+      DataField       =   ""
+      DataSource      =   ""
+      Enabled         =   True
+      Height          =   20
+      HelpTag         =   ""
+      Index           =   -2147483648
+      InitialParent   =   ""
+      Italic          =   False
+      Left            =   308
+      LockBottom      =   False
+      LockedInPosition=   False
+      LockLeft        =   True
+      LockRight       =   False
+      LockTop         =   True
+      Multiline       =   False
+      Scope           =   2
+      Selectable      =   False
+      TabIndex        =   3
+      TabPanelIndex   =   0
+      TabStop         =   True
+      Text            =   "Ping Result"
+      TextAlign       =   0
+      TextColor       =   &c00000000
+      TextFont        =   "System"
+      TextSize        =   0.0
+      TextUnit        =   0
+      Top             =   236
+      Transparent     =   False
+      Underline       =   False
+      Visible         =   True
+      Width           =   272
    End
 End
 #tag EndWindow
 
 #tag WindowCode
+	#tag Method, Flags = &h21
+		Private Sub UpdatePingResult()
+		  dim msg as string = format( PingReceived, "#,0" ) + " of " + format( PingRepetitions, "#,0" )
+		  lblPingResult.Text = msg
+		  
+		End Sub
+	#tag EndMethod
+
+
+	#tag Property, Flags = &h21
+		Private PingData As String
+	#tag EndProperty
+
+	#tag Property, Flags = &h21
+		Private PingReceived As Integer
+	#tag EndProperty
+
+	#tag Property, Flags = &h21
+		Private PingRepetitions As Integer
+	#tag EndProperty
+
+
 #tag EndWindowCode
 
 #tag Events btnConnect
@@ -165,21 +230,37 @@ End
 	#tag EndEvent
 	#tag Event
 		Sub DataAvailable(data As String)
+		  data = data // a place to break
+		  
 		  return
 		End Sub
 	#tag EndEvent
 	#tag Event
 		Sub Disconnected()
+		  PingData = ""
+		  
 		  return
 		End Sub
 	#tag EndEvent
 	#tag Event
 		Sub Error(message As String)
+		  #pragma unused message
+		  
 		  return
 		End Sub
 	#tag EndEvent
 	#tag Event
 		Sub PongReceived(msg As String)
+		  PingReceived = PingReceived + 1
+		  UpdatePingResult
+		  
+		  if msg <> PingData then
+		    //
+		    // The expected data didn't match so...
+		    //
+		    break
+		  end if
+		  
 		  return
 		End Sub
 	#tag EndEvent
@@ -194,7 +275,33 @@ End
 #tag Events btnPing
 	#tag Event
 		Sub Action()
-		  WS.Ping "Hello"
+		  'WS.Ping "Hello"
+		  'WS.Ping "There"
+		  'WS.Ping "Truly"
+		  
+		  if PingData = "" then
+		    const kTargetLen = 125
+		    const kDataSize = 20000
+		    
+		    dim baseString as string = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		    
+		    while baseString.LenB < kTargetLen
+		      baseString = baseString + baseString
+		    wend
+		    
+		    baseString = baseString.LeftB( kTargetLen )
+		    
+		    PingData = baseString
+		    PingRepetitions = kDataSize / PingData.LenB + 1
+		  end if
+		  
+		  PingReceived = 0
+		  UpdatePingResult
+		  
+		  for i as integer = 1 to PingRepetitions
+		    WS.Ping PingData
+		  next
+		  
 		End Sub
 	#tag EndEvent
 #tag EndEvents

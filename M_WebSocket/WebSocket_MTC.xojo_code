@@ -61,24 +61,34 @@ Implements Writeable
 
 	#tag Event
 		Sub DataAvailable()
+		  //
 		  // Concatenate the data left over from last time with all incoming data
-		  dim data as String = incomingBuffer + ReadAll
+		  //
+		  dim data as string
+		  if true then // scope
+		    dim ib as string = IncomingBuffer
+		    if ib <> "" then
+		      ib = ib // A place to break
+		    end if
+		    dim current as string = ReadAll
+		    data = ib + current
+		  end if
+		  IncomingBuffer = ""
 		  
 		  if State = States.Connected then
 		    
 		    dim fs() as M_WebSocket.Frame
 		    
 		    try
-		      dim lengthOfDataRead as UInt64 = 0
-		      fs = M_WebSocket.Frame.Decode( data, lengthOfDataRead )
-		      // Store whatever is left on a buffer for the next DataAvailable event
-		      IncomingBuffer = MidB( data, lengthOfDataRead + 1 )
+		      fs = M_WebSocket.Frame.Decode( data, IncomingBuffer )
+		      
 		    catch err as WebSocketException
 		      RaiseEvent error err.Message
 		      return
+		      
 		    end try
 		    
-		    for i as Integer = 0 to UBound( fs )
+		    for i as Integer = 0 to fs.Ubound
 		      dim f as M_WebSocket.Frame = fs( i )
 		      if f is nil then
 		        RaiseEvent error ( "Invalid packet received" )

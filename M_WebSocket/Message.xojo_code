@@ -46,7 +46,7 @@ Private Class Message
 	#tag EndMethod
 
 	#tag Method, Flags = &h0
-		 Shared Function ControlTypes() As M_WebSocket.Message.Types()
+		Shared Function ControlTypes() As M_WebSocket.Message.Types()
 		  dim r() as Message.Types = Array( _
 		  Message.Types.Ping, _
 		  Message.Types.Pong, _
@@ -58,7 +58,7 @@ Private Class Message
 	#tag EndMethod
 
 	#tag Method, Flags = &h0
-		 Shared Function DataTypes() As Message.Types()
+		Shared Function DataTypes() As Message.Types()
 		  
 		  dim r() as Message.Types = Array( _
 		  Types.Binary, _
@@ -111,7 +111,7 @@ Private Class Message
 	#tag EndMethod
 
 	#tag Method, Flags = &h0
-		 Shared Function ValidTypes() As Message.Types()
+		Shared Function ValidTypes() As Message.Types()
 		  
 		  dim r() as Message.Types = Array( _
 		  Types.Binary, _
@@ -213,6 +213,7 @@ Private Class Message
 			Name="Content"
 			Group="Behavior"
 			Type="String"
+			EditorType="MultiLineEditor"
 		#tag EndViewProperty
 		#tag ViewProperty
 			Name="EOF"
